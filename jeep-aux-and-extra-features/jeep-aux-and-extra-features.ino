@@ -5,7 +5,7 @@
 * My hardware:
 *  1. Arduino Pro Mini 5v/16Mhz
 *  2. Mcp2515_can SPI module (8Mhz)
-*  3. Generic (H166) bluetooth A2DP module
+*  3. Generic (H166) bluetooth A2DP module based on OVC3860, UART connected to Arduino
 *
 * Features:
 *  1. Bench mode to enable radio functioning while removed from the car
@@ -30,7 +30,8 @@
 
 #define CAN_MODULE_CS_PIN 10
 
-#define BLUETOOTH_SWITCH A1
+//A1
+#define BLUETOOTH_SWITCH 15 
 
 // BT TX -------- RX A4(18)
 // BT RX -- >|--- TX A5(19)
@@ -47,7 +48,7 @@ SoftwareSerial btSerial(BLUETOOTH_TX, BLUETOOTH_RX);
 
 #define CAN_DELAY_AFTER_SEND 20
 
-#define BENCH_MODE_ON
+//#define BENCH_MODE_ON
 
 MCP_CAN CAN(CAN_MODULE_CS_PIN);
 
@@ -67,12 +68,14 @@ unsigned char msgPowerOn[6]= {0x63,0,0,0,0,0};
 #define RADIOMODE_AUX 1
 unsigned char radioMode = RADIOMODE_OTHER;
 
+const char compileDate[] = __DATE__ " " __TIME__;
+
 
 #define PIN_DOWN(x) pinMode(x,OUTPUT); \
                     digitalWrite(x,LOW);
 
 void pinsSetup() {
-  PIN_DOWN(2);
+/*  PIN_DOWN(2);
   PIN_DOWN(3);
   PIN_DOWN(4);
   PIN_DOWN(5);
@@ -80,7 +83,7 @@ void pinsSetup() {
   PIN_DOWN(7);
   PIN_DOWN(8);
   PIN_DOWN(9);
-
+*/
   pinMode(BLUETOOTH_SWITCH, OUTPUT);
   digitalWrite(BLUETOOTH_SWITCH, LOW);
 }
@@ -96,23 +99,24 @@ void pinsSetup() {
 //#define CAN_HEADLIGHTS 0x1c8
 
 
-void setupFilters() {
-  CAN.init_Mask(0, 0, 0x3ff);
-  CAN.init_Mask(1, 0, 0x3ff);
-
-  CAN.init_Filt(0, 0, CAN_POWER);
-  CAN.init_Filt(1, 0, CAN_RADIO_MODE);
-  CAN.init_Filt(2, 0, CAN_RADIO_CONTROLS);
-  CAN.init_Filt(3, 0, CAN_BLINKERS);
-  CAN.init_Filt(4, 0, 0x08);
-  CAN.init_Filt(5, 0, 0x09);
-}
+//void setupFilters() {
+//  CAN.init_Mask(0, 0, 0x3ff);
+//  CAN.init_Mask(1, 0, 0x3ff);
+//
+//  CAN.init_Filt(0, 0, CAN_POWER);
+//  CAN.init_Filt(1, 0, CAN_RADIO_MODE);
+//  CAN.init_Filt(2, 0, CAN_RADIO_CONTROLS);
+//  CAN.init_Filt(3, 0, CAN_BLINKERS);
+//  CAN.init_Filt(4, 0, 0x08);
+//  CAN.init_Filt(5, 0, 0x09);
+//}
 
 void setup() {
-  pinsSetup();
+//  pinsSetup();
 
   Serial.begin(115200);
-  Serial.println("Jeep VES Enabler + Extras by latonita v.1.0");
+  Serial.print("Jeep VES Enabler + Extras by latonita v.1.1, ");
+  Serial.println(compileDate);
   
   btSerial.begin(115200);
 
@@ -137,23 +141,42 @@ void sendAnnouncements() {
     delay(CAN_DELAY_AFTER_SEND);
 }
 
-void checkIncomingMessages() {
-  static unsigned int canId = 0;
-  static unsigned char len = 0;
-  static unsigned char buf[8];
-  static unsigned char oldMode = radioMode;
+unsigned int canId = 0;
+unsigned char len = 0;
+unsigned char buf[8];
+unsigned char newMode = 0;
 
-  if(CAN_MSGAVAIL == CAN.checkReceive()) {
-    CAN.readMsgBuf(&len, buf);
-  }
+void checkIncomingMessages() {
+
+  if(CAN_MSGAVAIL != CAN.checkReceive())
+    return;
+    
+  CAN.readMsgBuf(&len, buf);
   canId = CAN.getCanId();
 
   switch (canId) {
     case CAN_RADIO_MODE:
-      // current radio mode
-      radioMode = (buf[0] & 0xF == 6) ? RADIOMODE_AUX : RADIOMODE_OTHER;
 
-      if (oldMode != radioMode) {
+        // some debug output
+          Serial.print("CAN ID: ");
+          Serial.print(canId, HEX);
+
+          for (int i = 0; i< len; i++) {
+            Serial.print(",");
+            Serial.print(buf[i],HEX);
+          }
+          Serial.println();
+          Serial.print("Radio mode: ");
+          Serial.print(buf[0] & 0xF, HEX);
+          Serial.print(":");
+          Serial.print(radioMode);
+          Serial.print(">");
+          Serial.println(newMode);
+
+      newMode = ((buf[0] & 0xF) == 6) ? RADIOMODE_AUX : RADIOMODE_OTHER;
+
+      if (radioMode != newMode) {
+        radioMode = newMode;
         digitalWrite(BLUETOOTH_SWITCH, radioMode == RADIOMODE_AUX ? HIGH : LOW);
         if (radioMode == RADIOMODE_AUX) {
           Serial.print("Radio Mode changed to AUX");
