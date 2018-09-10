@@ -318,6 +318,21 @@ X PD5 9 600 -1000 100 L 50 50 1 1 T
 ENDDRAW
 ENDDEF
 #
+# Mechanical:MountingHole
+#
+DEF Mechanical:MountingHole MH 0 40 Y Y 1 F N
+F0 "MH" 0 200 50 H V C CNN
+F1 "Mechanical:MountingHole" 0 125 50 H V C CNN
+F2 "" 0 0 50 H I C CNN
+F3 "" 0 0 50 H I C CNN
+$FPLIST
+ MountingHole*
+$ENDFPLIST
+DRAW
+C 0 0 50 0 1 50 N
+ENDDRAW
+ENDDEF
+#
 # Power_Supervisor:MCP100-450D
 #
 DEF Power_Supervisor:MCP100-450D U 0 40 Y Y 1 F N

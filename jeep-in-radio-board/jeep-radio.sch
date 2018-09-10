@@ -467,8 +467,8 @@ F 3 "http://ww1.microchip.com/downloads/en/DeviceDoc/40001906C.pdf" H 2100 5350 
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
-	5600 5650 5950 5650
-Text Label 5750 5650 0    50   ~ 0
+	2700 5650 3050 5650
+Text Label 2850 5650 0    50   ~ 0
 ~RESET~
 $Comp
 L Device:R R11
@@ -507,7 +507,7 @@ BT_RX
 Wire Wire Line
 	2700 5350 3050 5350
 Text Label 2850 5350 0    50   ~ 0
-BT_LED
+BT_ON
 Wire Wire Line
 	2700 5550 3600 5550
 Text Label 3350 5550 0    50   ~ 0
@@ -565,9 +565,9 @@ F 3 "" H 2100 6850 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
-	2700 5050 3050 5050
-Text Label 2850 5050 0    50   ~ 0
-BT_ON
+	2700 5250 3050 5250
+Text Label 2850 5250 0    50   ~ 0
+BT_LED
 $Comp
 L Device:Crystal Y1
 U 1 1 5B998FD2
@@ -1168,4 +1168,77 @@ Text Label 10150 900  0    50   ~ 0
 CAN_H
 Text Label 10150 1000 0    50   ~ 0
 CAN_L
+$Comp
+L Connector:Conn_01x02_Male J4
+U 1 1 5B97388B
+P 9950 1400
+F 0 "J4" H 9950 1500 50  0000 C CNN
+F 1 "Conn_01x02_Male" H 10056 1487 50  0001 C CNN
+F 2 "Connector_PinHeader_2.54mm:PinHeader_2x01_P2.54mm_Vertical" H 9950 1400 50  0001 C CNN
+F 3 "~" H 9950 1400 50  0001 C CNN
+	1    9950 1400
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	10150 1400 10350 1400
+Wire Wire Line
+	10150 1500 10350 1500
+Text Label 10150 1400 0    50   ~ 0
+TXD
+Text Label 10150 1500 0    50   ~ 0
+RXD
+$Comp
+L Mechanical:MountingHole MH1
+U 1 1 5B97A4F3
+P 8650 6350
+F 0 "MH1" H 8750 6396 50  0000 L CNN
+F 1 "MountingHole" H 8750 6305 50  0000 L CNN
+F 2 "MountingHole:MountingHole_3.2mm_M3_DIN965" H 8650 6350 50  0001 C CNN
+F 3 "~" H 8650 6350 50  0001 C CNN
+	1    8650 6350
+	1    0    0    -1  
+$EndComp
+$Comp
+L Mechanical:MountingHole MH2
+U 1 1 5B98D251
+P 8900 6350
+F 0 "MH2" H 9000 6396 50  0000 L CNN
+F 1 "MountingHole" H 9000 6305 50  0000 L CNN
+F 2 "MountingHole:MountingHole_3.2mm_M3_DIN965" H 8900 6350 50  0001 C CNN
+F 3 "~" H 8900 6350 50  0001 C CNN
+	1    8900 6350
+	1    0    0    -1  
+$EndComp
+$Comp
+L Mechanical:MountingHole MH3
+U 1 1 5B98D2C7
+P 9150 6350
+F 0 "MH3" H 9250 6396 50  0000 L CNN
+F 1 "MountingHole" H 9250 6305 50  0000 L CNN
+F 2 "MountingHole:MountingHole_3.2mm_M3_DIN965" H 9150 6350 50  0001 C CNN
+F 3 "~" H 9150 6350 50  0001 C CNN
+	1    9150 6350
+	1    0    0    -1  
+$EndComp
+$Comp
+L Mechanical:MountingHole MH4
+U 1 1 5B98D343
+P 9400 6350
+F 0 "MH4" H 9500 6396 50  0000 L CNN
+F 1 "MountingHole" H 9500 6305 50  0000 L CNN
+F 2 "MountingHole:MountingHole_3.2mm_M3_DIN965" H 9400 6350 50  0001 C CNN
+F 3 "~" H 9400 6350 50  0001 C CNN
+	1    9400 6350
+	1    0    0    -1  
+$EndComp
+Text Label 2100 1200 0    50   ~ 0
+PWR_9
+Text Label 2900 1900 0    50   ~ 0
+PWR_9_1
+Text Label 9150 5200 0    50   ~ 0
+VBAT
+Text Label 5700 5650 0    50   ~ 0
+~RESET~
+Wire Wire Line
+	5600 5650 5950 5650
 $EndSCHEMATC
