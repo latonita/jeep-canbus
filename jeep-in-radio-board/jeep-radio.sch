@@ -494,23 +494,23 @@ Wire Wire Line
 $Comp
 L Diode:1N4002 D1
 U 1 1 5B972DB2
-P 3200 5450
-F 0 "D1" H 3250 5300 50  0000 C CNN
-F 1 "1N4001" H 3250 5200 50  0000 C CNN
-F 2 "Diode_SMD:D_MELF" H 3200 5275 50  0001 C CNN
-F 3 "http://www.vishay.com/docs/88503/1n4001.pdf" H 3200 5450 50  0001 C CNN
-	1    3200 5450
+P 3200 5250
+F 0 "D1" H 3250 5100 50  0000 C CNN
+F 1 "1N4001" H 3250 5000 50  0000 C CNN
+F 2 "Diode_SMD:D_MELF" H 3200 5075 50  0001 C CNN
+F 3 "http://www.vishay.com/docs/88503/1n4001.pdf" H 3200 5250 50  0001 C CNN
+	1    3200 5250
 	1    0    0    -1  
 $EndComp
-Text Label 3350 5450 0    50   ~ 0
+Text Label 3350 5250 0    50   ~ 0
 BT_RX
 Wire Wire Line
-	2700 5350 3050 5350
-Text Label 2850 5350 0    50   ~ 0
+	2700 5150 3050 5150
+Text Label 2850 5150 0    50   ~ 0
 BT_ON
 Wire Wire Line
-	2700 5550 3600 5550
-Text Label 3350 5550 0    50   ~ 0
+	2700 5450 3600 5450
+Text Label 3350 5450 0    50   ~ 0
 BT_TX
 Wire Wire Line
 	2700 4750 3050 4750
@@ -565,8 +565,8 @@ F 3 "" H 2100 6850 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
-	2700 5250 3050 5250
-Text Label 2850 5250 0    50   ~ 0
+	2700 5050 3050 5050
+Text Label 2850 5050 0    50   ~ 0
 BT_LED
 $Comp
 L Device:Crystal Y1
@@ -730,13 +730,13 @@ PWR
 Wire Wire Line
 	2700 4150 3800 4150
 Wire Wire Line
-	3050 5450 2700 5450
+	3050 5250 2700 5250
 Wire Wire Line
 	3800 4150 3800 5350
 Wire Wire Line
 	3800 5350 4400 5350
 Wire Wire Line
-	3350 5450 3600 5450
+	3350 5250 3600 5250
 $Comp
 L power:GND #PWR05
 U 1 1 5BA717F6
@@ -950,7 +950,7 @@ L Connector_Generic:Conn_02x03_Odd_Even ICSP1
 U 1 1 5BAF7ADC
 P 6100 1000
 F 0 "ICSP1" H 6150 1317 50  0000 C CNN
-F 1 "Conn_02x03_Odd_Even" H 6150 1226 50  0000 C CNN
+F 1 "Conn_02x03_Odd_Even" H 6150 1226 50  0001 C CNN
 F 2 "Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical" H 6100 1000 50  0001 C CNN
 F 3 "~" H 6100 1000 50  0001 C CNN
 	1    6100 1000
@@ -1169,23 +1169,23 @@ CAN_H
 Text Label 10150 1000 0    50   ~ 0
 CAN_L
 $Comp
-L Connector:Conn_01x02_Male J4
+L Connector:Conn_01x03_Male J4
 U 1 1 5B97388B
 P 9950 1400
 F 0 "J4" H 9950 1500 50  0000 C CNN
-F 1 "Conn_01x02_Male" H 10056 1487 50  0001 C CNN
-F 2 "Connector_PinHeader_2.54mm:PinHeader_2x01_P2.54mm_Vertical" H 9950 1400 50  0001 C CNN
+F 1 "Conn_01x03_Male" H 10056 1487 50  0001 C CNN
+F 2 "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical" H 9950 1400 50  0001 C CNN
 F 3 "~" H 9950 1400 50  0001 C CNN
 	1    9950 1400
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
-	10150 1400 10350 1400
+	10150 1300 10350 1300
 Wire Wire Line
-	10150 1500 10350 1500
-Text Label 10150 1400 0    50   ~ 0
+	10150 1400 10350 1400
+Text Label 10150 1300 0    50   ~ 0
 TXD
-Text Label 10150 1500 0    50   ~ 0
+Text Label 10150 1400 0    50   ~ 0
 RXD
 $Comp
 L Mechanical:MountingHole MH1
@@ -1241,4 +1241,19 @@ Text Label 5700 5650 0    50   ~ 0
 ~RESET~
 Wire Wire Line
 	5600 5650 5950 5650
+$Comp
+L power:GND #PWR0104
+U 1 1 5B9BAC5C
+P 10250 1550
+F 0 "#PWR0104" H 10250 1300 50  0001 C CNN
+F 1 "GND" H 10255 1377 50  0000 C CNN
+F 2 "" H 10250 1550 50  0001 C CNN
+F 3 "" H 10250 1550 50  0001 C CNN
+	1    10250 1550
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	10150 1500 10250 1500
+Wire Wire Line
+	10250 1500 10250 1550
 $EndSCHEMATC
