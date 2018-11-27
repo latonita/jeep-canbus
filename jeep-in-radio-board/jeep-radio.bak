@@ -566,8 +566,6 @@ F 3 "" H 2100 6850 50  0001 C CNN
 $EndComp
 Wire Wire Line
 	2700 5050 3050 5050
-Text Label 2850 5050 0    50   ~ 0
-BT_LED
 $Comp
 L Device:Crystal Y1
 U 1 1 5B998FD2
@@ -642,7 +640,7 @@ XTAL2
 Text Label 3750 6600 2    50   ~ 0
 XTAL1
 $Comp
-L Interface_CAN_LIN:MCP2515-EST U4
+L jeep-radio-rescue:MCP2515-EST-Interface_CAN_LIN U4
 U 1 1 5B9B70C5
 P 5000 5050
 F 0 "U4" H 4400 5950 50  0000 C CNN
@@ -833,7 +831,7 @@ L Device:R R10
 U 1 1 5BA9EF39
 P 6000 7000
 F 0 "R10" H 6070 7046 50  0000 L CNN
-F 1 "1k" H 6070 6955 50  0000 L CNN
+F 1 "680" H 6070 6955 50  0000 L CNN
 F 2 "Resistor_SMD:R_0805_2012Metric" V 5930 7000 50  0001 C CNN
 F 3 "~" H 6000 7000 50  0001 C CNN
 	1    6000 7000
@@ -844,7 +842,7 @@ Wire Wire Line
 Wire Wire Line
 	6000 6400 6000 6350
 Text Label 6000 6350 0    50   ~ 0
-PWR
+BT_3V3
 Wire Wire Line
 	6000 7150 6000 7350
 Text Label 6000 7350 0    50   ~ 0
@@ -871,8 +869,6 @@ F 3 "" H 9200 5600 50  0001 C CNN
 	1    9200 5600
 	1    0    0    -1  
 $EndComp
-Wire Wire Line
-	9350 5100 9200 5100
 $Comp
 L Diode:1N4001 D4
 U 1 1 5BAC0512
@@ -913,8 +909,6 @@ F 3 "~" H 8900 5500 50  0001 C CNN
 	0    1    1    0   
 $EndComp
 Wire Wire Line
-	9200 5100 9200 5500
-Wire Wire Line
 	8600 5200 8600 5500
 Wire Wire Line
 	8600 5500 8750 5500
@@ -946,10 +940,10 @@ F 3 "~" H 7700 1000 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Connector_Generic:Conn_02x03_Odd_Even ICSP
+L Connector_Generic:Conn_02x03_Odd_Even ICSP1
 U 1 1 5BAF7ADC
 P 6100 1000
-F 0 "ICSP" H 6150 1317 50  0000 C CNN
+F 0 "ICSP1" H 6150 1317 50  0000 C CNN
 F 1 "Conn_02x03_Odd_Even" H 6150 1226 50  0001 C CNN
 F 2 "Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical" H 6100 1000 50  0001 C CNN
 F 3 "~" H 6100 1000 50  0001 C CNN
@@ -1235,8 +1229,8 @@ Text Label 2100 1200 0    50   ~ 0
 PWR_9
 Text Label 2900 1900 0    50   ~ 0
 PWR_9_1
-Text Label 9150 5200 0    50   ~ 0
-VBAT
+Text Label 8700 5200 0    50   ~ 0
+BT_3V3
 Text Label 5700 5650 0    50   ~ 0
 ~RESET~
 Wire Wire Line
@@ -1256,4 +1250,76 @@ Wire Wire Line
 	10150 1500 10250 1500
 Wire Wire Line
 	10250 1500 10250 1550
+Wire Wire Line
+	9200 5000 9350 5000
+Wire Wire Line
+	9200 5000 9200 5500
+$Comp
+L Device:R R13
+U 1 1 5BFF857C
+P 9950 5650
+F 0 "R13" V 9743 5650 50  0000 C CNN
+F 1 "10k" V 9834 5650 50  0000 C CNN
+F 2 "Resistor_SMD:R_0805_2012Metric" V 9880 5650 50  0001 C CNN
+F 3 "~" H 9950 5650 50  0001 C CNN
+	1    9950 5650
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	9350 5300 9350 5650
+Wire Wire Line
+	9350 5650 9800 5650
+Wire Wire Line
+	10100 5650 10550 5650
+Wire Wire Line
+	10550 5650 10550 5200
+Wire Wire Line
+	9350 4800 9100 4800
+Text Label 9100 4800 0    50   ~ 0
+BT_LED
+$Comp
+L power:PWR_FLAG #FLG0104
+U 1 1 5C0302AB
+P 8600 4950
+F 0 "#FLG0104" H 8600 5025 50  0001 C CNN
+F 1 "PWR_FLAG" H 8600 5124 50  0000 C CNN
+F 2 "" H 8600 4950 50  0001 C CNN
+F 3 "~" H 8600 4950 50  0001 C CNN
+	1    8600 4950
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	8600 4950 8600 5200
+Wire Wire Line
+	10550 5200 10900 5200
+Connection ~ 10550 5200
+Text Label 10650 5200 0    50   ~ 0
+BT_RESET
+$Comp
+L Connector:Conn_01x04_Male J?
+U 1 1 5C063ADC
+P 9950 2750
+F 0 "J?" H 10056 3028 50  0000 C CNN
+F 1 "Conn_01x04_Male" H 10056 2937 50  0000 C CNN
+F 2 "" H 9950 2750 50  0001 C CNN
+F 3 "~" H 9950 2750 50  0001 C CNN
+	1    9950 2750
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	10150 2650 10450 2650
+Wire Wire Line
+	10150 2750 10450 2750
+Wire Wire Line
+	10150 2850 10450 2850
+Wire Wire Line
+	10150 2950 10450 2950
+Text Label 10200 2650 0    50   ~ 0
+BT_3V3
+Text Label 10200 2850 0    50   ~ 0
+BT_TX
+Text Label 10200 2750 0    50   ~ 0
+BT_RX
+Text Label 10200 2950 0    50   ~ 0
+BT_RESET
 $EndSCHEMATC
