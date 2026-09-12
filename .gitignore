@@ -1,0 +1,68 @@
+# ---- PlatformIO / ESP-IDF ----
+.pio/
+.pioenvs/
+.piolibdeps/
+build/
+cmake-build-*/
+managed_components/
+sdkconfig
+sdkconfig.old
+sdkconfig.ci
+# dependencies.lock is COMMITTED on purpose: it pins exact component versions
+# + hashes so managed_components/ can be reproduced byte-for-byte.
+*.elf
+*.bin
+*.map
+*.o
+*.a
+*.d
+*.su
+compile_commands.json
+
+# ---- Device backups / dumps ----
+backup*/
+*.eep
+
+# ---- Editors / IDEs ----
+.vscode/
+!.vscode/extensions.json
+.idea/
+.vs/
+*.code-workspace
+.clangd/
+.cache/
+.ccls-cache/
+
+# ---- OS junk ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+._*
+
+# ---- KiCad / EDA ----
+*-backups/
+*.kicad_pcb-bak
+*.kicad_prl
+*.kicad_sch-bak
+*.bak
+*.000
+fp-info-cache
+\#auto_saved_files#
+*.lck
+*~
+
+# ---- Python (tools/ scripts) ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# ---- Logs / temp ----
+*.log
+*.tmp
+*.swp
