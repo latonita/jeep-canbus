@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap">
+  <style>
+    body { margin:0; background:#0B0907; }
+    a { color:#FFA31A; } a:hover { color:#FFC46B; }
+  </style>
+</helmet>
+<div style="width:240px;height:320px;background:#0B0907;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;border-top:3px solid #FF4426;">
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #3A1610;font-size:12px;letter-spacing:0.04em;color:#8A2E1C;background:#1A0A07;">
+    <span style="color:#FF4426;font-weight:600;">14:22</span>
+    <span style="font-weight:600;letter-spacing:0.12em;">CRITICAL</span>
+    <span>NOW</span>
+  </div>
+
+  <div style="flex-shrink:0;display:flex;justify-content:center;padding:20px 0 10px;">
+    <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="#FF4426" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 L2 20 Z"></path><line x1="12" y1="10" x2="12" y2="14.5"></line><line x1="12" y1="17.4" x2="12" y2="17.4"></line></svg>
+  </div>
+
+  <div style="flex-shrink:0;text-align:center;padding:0 14px;">
+    <div style="font-size:17px;font-weight:600;letter-spacing:0.09em;color:#FF4426;line-height:1.15;">TYRE PRESSURE<br>FALLING</div>
+  </div>
+
+  <div style="flex-shrink:0;text-align:center;padding:14px 14px 0;">
+    <div style="font-size:11px;font-weight:600;letter-spacing:0.18em;color:#8A5E4A;">RIGHT REAR</div>
+    <div style="display:flex;align-items:baseline;justify-content:center;gap:6px;margin-top:-2px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:1;color:#FF4426;">24</span>
+      <span style="font-size:14px;color:#8A5E4A;">psi</span>
+    </div>
+    <div style="font-size:13px;letter-spacing:0.03em;color:#C08070;margin-top:2px;">down 6 psi in 4 minutes</div>
+  </div>
+
+  <div style="flex-grow:1;"></div>
+
+  <div style="flex-shrink:0;height:58px;display:flex;align-items:center;justify-content:center;border-top:1px solid #3A1610;background:#1A0A07;">
+    <span style="font-size:15px;font-weight:600;letter-spacing:0.16em;color:#FF4426;">DISMISS</span>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

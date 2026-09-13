@@ -1,0 +1,21 @@
+## Managed dependencies from the ESP Component Registry.
+##
+## There is no board-level BSP for the ESP32-S3-Touch-LCD-2.8 (verified:
+## waveshare/esp32_s3_touch_lcd_2_8 is a 404, and Waveshare's own IDF demo
+## vendors all its board glue in main/ rather than depending on components).
+## So we assemble it from the published pieces instead of copying their tree.
+##
+## The ST7789 panel driver is NOT listed here on purpose: it is built into
+## ESP-IDF's esp_lcd, which is why espressif/esp_lcd_st7789 does not exist.
+dependencies:
+  idf:
+    version: ">=5.2"
+  ## Touch. CST328 is the V1 board's controller, confirmed at I2C 0x1A in
+  ## Waveshare's demo. V2 boards (shipping since 2026-06-05) use CST3530 and
+  ## want waveshare/esp_lcd_touch_cst3530 instead -- different API.
+  waveshare/esp_lcd_touch_cst328: "^2.0.0"
+  ## LVGL and Espressif's glue for it. esp_lvgl_port handles the display
+  ## registration, the tick timer and the task locking, so we do not hand-roll
+  ## any of that. It supports LVGL 8 and 9; we pin 9.
+  espressif/esp_lvgl_port: "^2.9.0"
+  lvgl/lvgl: "^9.2.0"

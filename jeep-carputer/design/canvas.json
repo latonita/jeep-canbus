@@ -1,0 +1,158 @@
+{
+  "artboards": [
+    {
+      "file": "Splash.dc.html",
+      "title": "0 / WELCOME",
+      "x": -320,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Main.dc.html",
+      "title": "1 / DRIVE",
+      "x": 0,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Tyres.dc.html",
+      "title": "2 / TYRES",
+      "x": 320,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Health.dc.html",
+      "title": "3 / HEALTH",
+      "x": 640,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Trip.dc.html",
+      "title": "4 / TRIP",
+      "x": 960,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Tilt.dc.html",
+      "title": "5 / TILT",
+      "x": 1280,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Faults.dc.html",
+      "title": "HEALTH / faults drill-down",
+      "x": 0,
+      "y": 460,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "TyresUnmapped.dc.html",
+      "title": "TYRES / before mapping",
+      "x": 320,
+      "y": 460,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Alert.dc.html",
+      "title": "CRITICAL ALERT / overlay",
+      "x": 640,
+      "y": 460,
+      "w": 240,
+      "h": 320
+    }
+  ],
+  "annotations": [
+    {
+      "id": "swipe-axis",
+      "x": 0,
+      "y": -150,
+      "w": 900,
+      "text": "HORIZONTAL AXIS - the five peers, wrapping. This is the only axis a moving driver uses: a thumb flick anywhere on the panel, no aiming.\n\nAfter 30s untouched while the vehicle is moving, it animates back to DRIVE. Parked, it stays put.\n\nSwipe UP on any card for its detail view. Long-press the status bar for 1s to reach settings and diagnostics - deliberately the hardest gesture."
+    },
+    {
+      "id": "true-size",
+      "x": 1280,
+      "y": -150,
+      "w": 260,
+      "text": "Every artboard is drawn at true 240x320. Zoom in to judge legibility - that is the point of showing them at real size rather than scaled up."
+    },
+    {
+      "id": "drive-note",
+      "x": 0,
+      "y": 360,
+      "w": 260,
+      "text": "DRIVE\n\nThe big number is the TRIP AVERAGE, not instant. Instant L/100km from 0x1A7 under-reads by 3-6x and no single constant fits, so it is not shown as a number anywhere.\n\nFLOW NOW is that same signal as an unlabelled relative bar - the shape is trustworthy, the scale is not. Honest use of a signal you cannot yet calibrate.\n\nRange and litres come from 0x159 B5 x 0.5 L against the confirmed 78.0 L tank - zero unverified constants."
+    },
+    {
+      "id": "tyres-note",
+      "x": 320,
+      "y": 360,
+      "w": 260,
+      "text": "TYRES - the hero\n\nWCM 21 3B, four bytes, 1 psi per bit. Polled every 30s in the background even when off-screen, so the card opens populated and DRIVE can carry a live chip.\n\nByte-to-corner order is UNMAPPED. The board below is what ships until the mapping wizard has been run once."
+    },
+    {
+      "id": "health-note",
+      "x": 640,
+      "y": 360,
+      "w": 260,
+      "text": "HEALTH\n\nMIL is deliberately absent. Its bit reads TRUE in every sample including at speed - either the car really has a fault or the bit is wrong, and a permanently-lit warning is worse than none.\n\nOIL is the one lamp with confirmed behaviour. ABS, CHARGE and all three fluid flags have never been seen asserted, so they are drawn in their unlit state only."
+    },
+    {
+      "id": "trip-note",
+      "x": 960,
+      "y": 360,
+      "w": 260,
+      "text": "TRIP\n\nDistance integrates the 0x002 wheel counters at 4cm per count - mean of left and right to cancel cornering. They are 16-bit and wrap every 2.621km, so always mask the delta.\n\nOdometer is broadcast 0x014. FCMCGW 21A3 is unreachable on this car."
+    },
+    {
+      "id": "tilt-note",
+      "x": 1280,
+      "y": 360,
+      "w": 260,
+      "text": "TILT\n\nThe only screen fed entirely by the onboard IMU - no CAN, no link dependency. It keeps working when the 328 is unplugged.\n\nThe vehicle tilts against a fixed horizon rather than the reverse; that reads correctly at a glance."
+    },
+    {
+      "id": "alert-note",
+      "x": 940,
+      "y": 460,
+      "w": 250,
+      "text": "ALERT\n\nDark with red accents, never a red flood - a full red screen at night blinds you.\n\nInterrupts whatever card is showing, latches until dismissed. One 58px target, no way to mis-tap it.\n\nAmber WARN cases get a status-bar banner instead and never take the screen."
+    },
+    {
+      "id": "stale-note",
+      "x": 0,
+      "y": 740,
+      "w": 560,
+      "text": "NO NUMBER LIES ABOUT ITS AGE\n\nATMA delivers only ~61 of ~168 frames/sec, so gaps are normal. Every value past its TTL dims and reverts to dashes rather than silently holding. Nothing here has talked to a real car yet, which makes a frozen-but-plausible number the worst failure mode available - it is the one that gets believed."
+    },
+    {
+      "id": "faults-note",
+      "x": -280,
+      "y": 460,
+      "w": 260,
+      "text": "FAULTS\n\nSwipe up from HEALTH; swipe down to return. The chevron footer marks depth, where the peers show dots.\n\nEvery row is real: this is the recorded 16-fault scan of your truck. Active sorts above stored.\n\nDescriptions run 4-72 characters (median 40), so the text box wraps to three lines - U1504 at 67 chars is the worst real case and sets that height.\n\nPCM reports U0114 and U0103 TWICE in one reply, so rows are de-duplicated with a count badge rather than listed twice. There is no pending state on this protocol and no clear path, so the screen is read-only by design."
+    },
+    {
+      "id": "splash-note",
+      "x": -320,
+      "y": -150,
+      "w": 260,
+      "text": "WELCOME\n\nFades in on ignition, holds, fades out into DRIVE. Budget ~1.9s total: 620ms in, ~900ms hold, 400ms out - long enough to read, short enough not to be in the way when you just want the truck moving.\n\nThe hold is not decorative. At328Link::begin() drains the ROM bootloader noise off IO43 and handshakes with the 328; the splash is what covers that. Hold until the handshake returns, floor the wait at ~900ms so it never flickers past, and ceiling it so a dead link cannot hang the boot.\n\nThe mark is the WK's own face - seven short wide slots in a chrome surround, flanked by wedge headlamps that taper and wrap outboard. Drawn from the 2004 front-view reference, not the Wrangler's upright grille and round lamps. The hood wordmark is deliberately not reproduced."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap">
+  <style>
+    body { margin:0; background:#0B0907; }
+    a { color:#FFA31A; } a:hover { color:#FFC46B; }
+  </style>
+</helmet>
+<div style="width:240px;height:320px;background:#0B0907;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #241C13;font-size:12px;letter-spacing:0.04em;color:#9A6A22;">
+    <span style="color:#FFA31A;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#FFA31A;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#FFA31A;">TRIP A</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#6B4E20;">SINCE 8 SEP</span>
+  </div>
+
+  <div style="flex-shrink:0;padding:2px 12px 8px;">
+    <div style="display:flex;align-items:baseline;gap:6px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:56px;font-weight:500;line-height:0.95;color:#FFA31A;">247.8</span>
+      <span style="font-size:13px;color:#9A6A22;">km</span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #241C13;">
+    <div style="padding:5px 12px;border-right:1px solid #241C13;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">USED</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:24px;font-weight:500;line-height:1;color:#FFA31A;">23.5</span>
+        <span style="font-size:10px;color:#6B4E20;">L</span>
+      </div>
+    </div>
+    <div style="padding:5px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">AVERAGE</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:24px;font-weight:500;line-height:1;color:#FFA31A;">9.4</span>
+        <span style="font-size:10px;color:#6B4E20;">L/100</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #241C13;">
+    <div style="padding:5px 12px;border-right:1px solid #241C13;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">MOVING</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:24px;font-weight:500;line-height:1;color:#FFA31A;">3:42</span>
+        <span style="font-size:10px;color:#6B4E20;">+0:51 idle</span>
+      </div>
+    </div>
+    <div style="padding:5px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">AVG SPEED</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:24px;font-weight:500;line-height:1;color:#FFA31A;">67</span>
+        <span style="font-size:10px;color:#6B4E20;">km/h</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-grow:1;padding:8px 12px 4px;border-top:1px solid #241C13;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;margin-bottom:6px;">PEAKS THIS TRIP</div>
+    <div style="display:flex;flex-direction:column;gap:5px;font-size:12px;">
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:#6B4E20;letter-spacing:0.04em;">Max coolant</span>
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:14px;color:#FFA31A;">94 &#176;C</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:#6B4E20;letter-spacing:0.04em;">Min voltage</span>
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:14px;color:#FFA31A;">13.8 V</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:#6B4E20;letter-spacing:0.04em;">Max speed</span>
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:14px;color:#FFA31A;">118 km/h</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid #241C13;background:#140C08;">
+    <span style="font-size:10px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">ODOMETER</span>
+    <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:16px;letter-spacing:0.04em;color:#9A6A22;">246 279 km</span>
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#FFA31A;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

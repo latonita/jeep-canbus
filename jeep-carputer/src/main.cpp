@@ -1,0 +1,416 @@
+// jeep-carputer -- ESP32-S3 in-car computer.
+//
+// Milestone 1: prove the data path. Bring up the link to the ATmega328 in the
+// radio, read the cluster's fault codes once, then poll a handful of live
+// signals and log the decoded values.
+//
+// Plus a display SMOKE TEST -- solid colour fills, no LVGL, no touch. That is
+// there to verify pins, colour inversion and geometry, not to be a UI. The
+// real interface gets designed before it gets built, and a throwaway screen
+// quietly growing into a dashboard is how that decision gets made by accident.
+//
+// Everything interesting is in core/, which has no ESP-IDF dependency and is
+// covered by host tests. This file is only wiring.
+
+#include <inttypes.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "At328Link.h"
+#include "Board.h"
+#include "Display.h"
+#include "Touch.h"
+#include "Ui.h"
+#include "UiLog.h"
+
+#include "Decoder.h"
+#include "IsoTp.h"
+#include "Kwp.h"
+#include "PollScheduler.h"
+#include "SignalDb.h"
+#include "Broadcast.h"
+#include "TpmsSignals.h"
+#include "VehicleState.h"
+
+static const char* TAG = "carputer";
+
+static At328Link   gLink(LINK_UART_PORT, LINK_UART_TX, LINK_UART_RX, LINK_UART_BAUD);
+static IsoTpClient gIsoTp(gLink);
+static VehicleState gState;
+static PollScheduler gSched;
+static BroadcastState gBcast;
+
+// What to ask for, and how often. Modest rates on purpose: this is an 83.3 kbps
+// bus that the radio and instrument cluster depend on, and every request here
+// crosses a UART to an ATmega328 first.
+static const PollItem kPlan[] = {
+    // ONLY what broadcasts cannot supply. RPM, speed, coolant, ambient,
+    // voltage, odometer and ignition all arrive free on the bus and are read
+    // in the monitor window instead -- polling them would spend a transaction
+    // to get a slower copy of something already in hand.
+    {ECU_CCN, 0x2103u, 5000u},   // fuel level %      -- not broadcast
+    {ECU_CCN, 0x213Fu, 5000u},   // warning lamps     -- not broadcast
+    {ECU_CCN, 0x2135u, 10000u},  // fluid-low flags   -- not broadcast
+    {ECU_WCM, TPMS_ROAD_WHEELS_PID, 5000u},  // tyre pressures -- request-only
+};
+
+static const uint8_t kPlanCount = sizeof(kPlan) / sizeof(kPlan[0]);
+
+static uint32_t nowMs() {
+  return static_cast<uint32_t>(esp_timer_get_time() / 1000);
+}
+
+// Register every signal belonging to a polled (ecu, localId). Matching on the
+// pair rather than on names avoids depending on the generated naming scheme.
+static void registerPlanSignals() {
+  for (uint16_t i = 0u; i < kSignalCount; ++i) {
+    const SignalDef& def = kSignals[i];
+    for (uint8_t p = 0u; p < kPlanCount; ++p) {
+      if (def.ecu == kPlan[p].ecu && def.localId == kPlan[p].localId) {
+        if (gState.registerSignal(&def) < 0) {
+          ESP_LOGW(TAG, "state full, dropping %s", def.name);
+        }
+        break;
+      }
+    }
+  }
+  // The TPMS defs are not in the generated table -- the vendor database has no
+  // per-wheel pressure PID -- so they are registered explicitly.
+  for (uint8_t i = 0u; i < kTpmsSignalCount; ++i) {
+    if (gState.registerSignal(&kTpmsSignals[i]) < 0) {
+      ESP_LOGW(TAG, "state full, dropping %s", kTpmsSignals[i].name);
+    }
+  }
+  ESP_LOGI(TAG, "registered %u signals", gState.count());
+}
+
+// Signal names are module-qualified ("CCN.Vehicle Speed"); 39 screen
+// columns does not stretch to the prefix.
+static const char* shortName(const char* name) {
+  const char* dot = strchr(name, '.');
+  return (dot != nullptr && dot[1] != '\0') ? dot + 1 : name;
+}
+
+static void logDecoded(const SignalDef& def, const DecodedValue& v) {
+  if (!v.valid) {
+    ESP_LOGW(TAG, "  %-40s <invalid> raw=%" PRIu32, def.name, v.raw);
+    return;
+  }
+  if (v.label != nullptr) {
+    ESP_LOGI(TAG, "  %-40s %s", def.name, v.label);
+    uiLogPrintf("%.20s %.14s", shortName(def.name), v.label);
+  } else if (v.text[0] != '\0') {
+    ESP_LOGI(TAG, "  %-40s \"%s\"", def.name, v.text);
+    uiLogPrintf("%.18s %.16s", shortName(def.name), v.text);
+  } else {
+    ESP_LOGI(TAG, "  %-40s %.*f %s", def.name, static_cast<int>(v.decimals),
+             static_cast<double>(v.value), v.unit);
+    uiLogPrintf("%.22s %.*f%.5s", shortName(def.name),
+                static_cast<int>(v.decimals),
+                static_cast<double>(v.value), v.unit);
+  }
+}
+
+// One request, then decode every signal that lives in its response.
+static bool pollOne(const PollItem& item) {
+  if (item.ecu >= ECU_COUNT) {
+    return false;
+  }
+  const EcuDef& ecu = kEcus[item.ecu];
+
+  uint8_t req[4];
+  const uint8_t reqLen = kwpBuildReadLocalId(item.localId, req, sizeof(req));
+  if (reqLen == 0u) {
+    ESP_LOGE(TAG, "cannot build request for %04X", item.localId);
+    return false;
+  }
+
+  IsoTpPdu pdu;
+  const IsoTpStatus st =
+      gIsoTp.transact(ecu.requestId, ecu.responseId, req, reqLen, pdu, 400u);
+  if (st != ISOTP_OK) {
+    ESP_LOGD(TAG, "%s %04X: isotp %d", ecu.name, item.localId,
+             static_cast<int>(st));
+    return false;
+  }
+
+  KwpResponse resp;
+  const KwpStatus ks = kwpParseResponse(req, reqLen, pdu, resp);
+  if (ks == KWP_PENDING) {
+    // The module's real answer is already on its way. We do not re-send here:
+    // At328Link::sendFrame() drains the adapter's input before writing, so the
+    // stale reply cannot be mis-attributed to the next poll.
+    ESP_LOGD(TAG, "%s %04X: response pending", ecu.name, item.localId);
+    return false;
+  }
+  if (ks != KWP_OK) {
+    ESP_LOGD(TAG, "%s %04X: kwp %d nrc %02X", ecu.name, item.localId,
+             static_cast<int>(ks), resp.nrc);
+    return false;
+  }
+
+  const uint32_t t = nowMs();
+  uint8_t decoded = 0u;
+  // Two tables: the generated one, and the hand-written TPMS defs that the
+  // vendor database does not contain.
+  const SignalDef* tables[2] = {kSignals, kTpmsSignals};
+  const uint16_t counts[2] = {kSignalCount, kTpmsSignalCount};
+  for (uint8_t tbl = 0u; tbl < 2u; ++tbl)
+  for (uint16_t i = 0u; i < counts[tbl]; ++i) {
+    const SignalDef& def = tables[tbl][i];
+    if (def.ecu != item.ecu || def.localId != item.localId) {
+      continue;
+    }
+    const int8_t slot = gState.indexOf(&def);
+    if (slot < 0) {
+      continue;
+    }
+    DecodedValue v;
+    if (decodeSignal(def, pdu, v) == DECODE_OK && v.valid) {
+      gState.publish(slot, v.value, v.raw, v.label, t);
+      ++decoded;
+    } else {
+      gState.noteError(slot);
+    }
+    logDecoded(def, v);
+  }
+  return decoded != 0u;
+}
+
+// Ask a module who it is. `1A 87` returns an ASCII part number and every
+// module in the capture answers it, so it is the cheapest way to tell "module
+// absent" apart from "module present but has nothing to report".
+static void probeEcu(EcuId which) {
+  const EcuDef& ecu = kEcus[which];
+  uint8_t req[4];
+  const uint8_t reqLen = kwpBuildReadEcuIdent(0x87u, req, sizeof(req));
+  if (reqLen == 0u) {
+    return;
+  }
+
+  IsoTpPdu pdu;
+  if (gIsoTp.transact(ecu.requestId, ecu.responseId, req, reqLen, pdu, 800u) !=
+      ISOTP_OK) {
+    ESP_LOGW(TAG, "%-6s absent (no answer to 1A 87)", ecu.name);
+    return;
+  }
+
+  KwpResponse resp;
+  if (kwpParseResponse(req, reqLen, pdu, resp) != KWP_OK) {
+    ESP_LOGW(TAG, "%-6s answered, but refused 1A 87 (nrc %02X)", ecu.name, resp.nrc);
+    return;
+  }
+
+  // Payload is the identifier echo then printable ASCII.
+  char pn[24];
+  uint8_t n = 0u;
+  for (uint16_t i = 1u; i < resp.len && n + 1u < sizeof(pn); ++i) {
+    const char c = (char)resp.data[i];
+    if (c >= 0x20 && c < 0x7F) {
+      pn[n++] = c;
+    }
+  }
+  pn[n] = '\0';
+  ESP_LOGI(TAG, "%-6s PRESENT, part number \"%s\"", ecu.name, pn);
+}
+
+// Read one module's stored faults and name them from the generated table.
+static void readDtcs(EcuId which) {
+  const EcuDef& ecu = kEcus[which];
+  uint8_t req[4];
+  const uint8_t reqLen = kwpBuildReadDtc(req, sizeof(req));
+
+  IsoTpPdu pdu;
+  if (gIsoTp.transact(ecu.requestId, ecu.responseId, req, reqLen, pdu, 1200u) !=
+      ISOTP_OK) {
+    ESP_LOGW(TAG, "%s: no DTC response", ecu.name);
+    return;
+  }
+
+  KwpResponse resp;
+  if (kwpParseResponse(req, reqLen, pdu, resp) != KWP_OK) {
+    ESP_LOGW(TAG, "%s: DTC read refused", ecu.name);
+    return;
+  }
+
+  DtcRecord recs[16];
+  bool truncated = false;
+  const uint8_t n = kwpParseDtcList(resp, recs, sizeof(recs) / sizeof(recs[0]),
+                                    truncated);
+  ESP_LOGI(TAG, "%s: %u fault(s)%s", ecu.name, n, truncated ? " (truncated)" : "");
+  uiLogPrintf("%s: %u fault(s)", ecu.name, n);
+
+  for (uint8_t i = 0u; i < n; ++i) {
+    char sae[6];
+    if (!kwpDtcToSae(recs[i].code, sae, sizeof(sae))) {
+      sae[0] = '\0';
+    }
+    const DtcDef* known = dtcLookup(which, recs[i].code);
+    ESP_LOGI(TAG, "  %s  %-10s  %s", sae, kwpDtcStatusText(recs[i].status),
+             known != nullptr ? known->text : "(not in table)");
+    uiLogPrintf("%s %.32s", sae,
+                known != nullptr ? known->text : "unknown");
+  }
+}
+
+// Screen brightness from the dash dimmer. Fails BRIGHT: if nothing has been
+// heard for five seconds the panel goes to 100% rather than staying dark.
+#define BACKLIGHT_SIGNAL_TTL_MS 5000u
+
+static void applyBacklight(uint32_t now) {
+  static uint16_t applied = 0xFFFFu;
+  const bool have = (gBcast.dimmerMs != 0u) &&
+                    ((now - gBcast.dimmerMs) < BACKLIGHT_SIGNAL_TTL_MS);
+  const uint16_t pm = broadcastBacklightPermille(gBcast.dimmerRaw, have);
+  if (pm == applied) {
+    return;
+  }
+  applied = pm;
+  (void)displayBacklightPermille(pm);
+  ESP_LOGI(TAG, "backlight %u.%u%% (dimmer %02X, signal %s)", pm / 10u, pm % 10u,
+           gBcast.dimmerRaw, have ? "live" : "absent");
+}
+
+// How long to sit in ATMA before dropping out to run requests. Long enough that
+// the 50 ms signals arrive several times over, short enough that a 5 s poll
+// period is still comfortably met.
+#define MONITOR_WINDOW_MS 700u
+
+static void carTask(void*) {
+  // Retry rather than give up: on a cold start the 328 may still be coming up
+  // with the radio, and the link is the only path to the vehicle.
+  unsigned tries = 0u;
+  while (gLink.begin() != LINK_OK) {
+    ESP_LOGW(TAG, "link not ready, retrying");
+    uiLogPrintf("link: no 328 (try %u, %us)", ++tries,
+                static_cast<unsigned>(nowMs() / 1000u));
+    vTaskDelay(pdMS_TO_TICKS(2000));
+  }
+
+  uiLinkReady(true);
+
+  char st[96];
+  if (gLink.status(st, sizeof(st)) == LINK_OK) {
+    ESP_LOGI(TAG, "adapter: %s", st);
+  }
+
+  // Probe every module we might be able to reach, rather than only the cluster.
+  // On a bench with just the radio, the CCN is not present and its silence says
+  // nothing about whether the link works; the RADIO answering (even with zero
+  // faults) proves ISO-TP, KWP and the adapter end to end.
+  static const EcuId kProbe[] = {ECU_RADIO, ECU_CCN, ECU_WCM};
+  for (uint8_t i = 0u; i < sizeof(kProbe) / sizeof(kProbe[0]); ++i) {
+    probeEcu(kProbe[i]);
+    readDtcs(kProbe[i]);
+  }
+
+  for (uint8_t i = 0u; i < kPlanCount; ++i) {
+    if (!gSched.add(kPlan[i])) {
+      ESP_LOGW(TAG, "poll plan full at %u", i);
+    }
+  }
+
+  broadcastClear(gBcast);
+
+  // Monitoring and requesting cannot overlap -- ATMA streams until a character
+  // arrives and the adapter accepts no commands meanwhile -- so the loop
+  // alternates: listen for a window, then spend a few requests on what
+  // listening cannot provide.
+  uint32_t loopStart = nowMs();
+  uint32_t loopWorst = 0u;
+  uint32_t loopReport = nowMs();
+
+  for (;;) {
+    const uint32_t period = nowMs() - loopStart;
+    loopStart = nowMs();
+    if (period > loopWorst) {
+      loopWorst = period;
+    }
+    if (nowMs() - loopReport > 10000u) {
+      loopReport = nowMs();
+      ESP_LOGI(TAG, "loop %ums (worst %ums)  frames=%u decoded=%u",
+               (unsigned)period, (unsigned)loopWorst,
+               (unsigned)gBcast.frames, (unsigned)gBcast.decoded);
+      loopWorst = 0u;
+    }
+
+    if (gLink.monitorBegin() == LINK_OK) {
+      const uint32_t until = nowMs() + MONITOR_WINDOW_MS;
+      CanFrame f;
+      while (nowMs() < until) {
+        if (gLink.readFrame(f, 40u) == LINK_OK) {
+          const uint32_t t = nowMs();
+          if (broadcastApply(gBcast, f, t) && f.id == 0x210u) {
+            // Apply brightness the instant the dimmer frame lands, rather than
+            // waiting for the end of the loop. Deferring it to after the poll
+            // burst added up to two seconds of lag to a control the driver is
+            // actively turning, which reads as the screen ignoring them.
+            applyBacklight(t);
+          }
+        }
+      }
+      gLink.monitorEnd();
+    } else {
+      // No monitor mode (bench link, or the adapter refused): fall back to
+      // polling alone rather than stalling.
+      vTaskDelay(pdMS_TO_TICKS(50));
+    }
+
+    applyBacklight(nowMs());   // also covers the failsafe when 0x210 goes silent
+
+    // A few requests, then back to listening. Bounded so a slow module cannot
+    // starve the monitor window.
+    for (uint8_t n = 0u; n < 3u; ++n) {
+      const PollItem* item = gSched.next(nowMs());
+      if (item == nullptr) {
+        break;
+      }
+      const bool ok = pollOne(*item);
+      gSched.noteResult(ok, nowMs());
+    }
+  }
+}
+
+extern "C" void app_main(void) {
+  ESP_LOGI(TAG, "jeep-carputer: boot");
+  ESP_LOGI(TAG, "%u signals and %u DTC descriptions compiled in",
+           static_cast<unsigned>(kSignalCount), static_cast<unsigned>(kDtcCount));
+
+  registerPlanSignals();
+
+  // Display bring-up. A failure here must not stop the car link: the data path
+  // is the point of the device, the screen is only how it is presented.
+  if (displayInit() == ESP_OK) {
+    // Brief flash so a blank screen can be told apart from a dead one before
+    // LVGL takes the panel over.
+    (void)displayFill(RGB565_BLACK);
+    ESP_ERROR_CHECK(displayBacklight(100u));
+    uiSetBroadcast(&gBcast);
+    if (uiInit(&gState) != ESP_OK) {
+      ESP_LOGE(TAG, "dashboard unavailable");
+    } else if (touchInit() != ESP_OK) {
+      // Readable but not swipeable. Worth continuing: every screen still shows
+      // its data, and DRIVE is where the UI parks itself anyway.
+      ESP_LOGE(TAG, "touch unavailable, screens will not swipe");
+    }
+  } else {
+    ESP_LOGE(TAG, "display unavailable, continuing headless");
+  }
+
+  // Its own task: the link blocks with timeouts, which is fine here but must
+  // not hold up whatever else the system grows later. Started BEFORE the splash
+  // hold so the handshake runs behind the welcome screen rather than after it.
+  // Core 0, away from the renderer on core 1. Its long blocking UART reads are
+  // then invisible to the display no matter how long a module takes to answer.
+  xTaskCreatePinnedToCore(carTask, "car", 6144, nullptr, 5, nullptr, 0);
+
+  // Blocks app_main only, and app_main is allowed to return. The hold is what
+  // covers the 328 handshake; the ceiling is what stops a dead gateway from
+  // leaving the welcome screen up forever.
+  uiSplash(1900u);
+}

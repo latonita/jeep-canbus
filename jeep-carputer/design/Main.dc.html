@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap">
+  <style>
+    body { margin:0; background:#0B0907; }
+    a { color:#FFA31A; } a:hover { color:#FFC46B; }
+  </style>
+</helmet>
+<div style="width:240px;height:320px;background:#0B0907;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #241C13;font-size:12px;letter-spacing:0.04em;color:#9A6A22;">
+    <span style="color:#FFA31A;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#FFA31A;display:inline-block;"></span></span>
+  </div>
+
+  <div style="flex-grow:1;display:flex;flex-direction:column;justify-content:center;padding:8px 12px 4px;">
+    <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;">TRIP AVERAGE</div>
+    <div style="display:flex;align-items:baseline;gap:6px;margin-top:-4px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#FFA31A;">9.4</span>
+      <span style="font-size:13px;letter-spacing:0.04em;color:#9A6A22;">L/100km</span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;padding:0 12px 8px;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;margin-bottom:4px;">FLOW NOW</div>
+    <div style="display:flex;gap:2px;height:10px;">
+      <span style="flex-grow:1;background:#FFA31A;"></span>
+      <span style="flex-grow:1;background:#FFA31A;"></span>
+      <span style="flex-grow:1;background:#FFA31A;"></span>
+      <span style="flex-grow:1;background:#FFA31A;"></span>
+      <span style="flex-grow:1;background:#FFA31A;"></span>
+      <span style="flex-grow:1;background:#FFA31A;"></span>
+      <span style="flex-grow:1;background:#FFA31A;"></span>
+      <span style="flex-grow:1;background:#FFA31A;"></span>
+      <span style="flex-grow:1;background:#FFA31A;"></span>
+      <span style="flex-grow:1;background:#2A1F12;"></span>
+      <span style="flex-grow:1;background:#2A1F12;"></span>
+      <span style="flex-grow:1;background:#2A1F12;"></span>
+      <span style="flex-grow:1;background:#2A1F12;"></span>
+      <span style="flex-grow:1;background:#2A1F12;"></span>
+      <span style="flex-grow:1;background:#2A1F12;"></span>
+      <span style="flex-grow:1;background:#2A1F12;"></span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #241C13;">
+    <div style="padding:6px 12px;border-right:1px solid #241C13;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">RANGE</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:28px;font-weight:500;line-height:1;color:#FFA31A;">384</span>
+        <span style="font-size:11px;color:#6B4E20;">km</span>
+      </div>
+    </div>
+    <div style="padding:6px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">IN TANK</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:28px;font-weight:500;line-height:1;color:#FFA31A;">35.5</span>
+        <span style="font-size:11px;color:#6B4E20;">L</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #241C13;">
+    <div style="padding:6px 12px;border-right:1px solid #241C13;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">COOLANT</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:28px;font-weight:500;line-height:1;color:#FFA31A;">89</span>
+        <span style="font-size:11px;color:#6B4E20;">&#176;C</span>
+      </div>
+    </div>
+    <div style="padding:6px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">BATTERY</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:28px;font-weight:500;line-height:1;color:#FFA31A;">14.1</span>
+        <span style="font-size:11px;color:#6B4E20;">V</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;height:30px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid #241C13;">
+    <span style="font-size:10px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">TYRES</span>
+    <span style="display:flex;align-items:center;gap:8px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:15px;letter-spacing:0.06em;color:#9A6A22;">33 32 33</span>
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:15px;font-weight:600;color:#FF4426;">30</span>
+    </span>
+  </div>
+
+  <div style="flex-shrink:0;height:30px;display:flex;align-items:center;gap:8px;padding:0 12px;border-top:1px solid #241C13;background:#160D09;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FF4426" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 L2 20 Z"></path><line x1="12" y1="10" x2="12" y2="14"></line><line x1="12" y1="17" x2="12" y2="17"></line></svg>
+    <span style="font-size:12px;font-weight:600;letter-spacing:0.06em;color:#FF4426;">2 ACTIVE FAULTS</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#6B4E20;margin-left:auto;">14 stored</span>
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
+    <span style="width:5px;height:5px;border-radius:50%;background:#FFA31A;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

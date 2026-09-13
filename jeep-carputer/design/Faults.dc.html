@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow+Semi+Condensed:wght@400;500;600&display=swap">
+  <style>
+    body { margin:0; background:#0B0907; }
+    a { color:#FFA31A; } a:hover { color:#FFC46B; }
+  </style>
+</helmet>
+<div style="width:240px;height:320px;background:#0B0907;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #241C13;font-size:12px;letter-spacing:0.04em;color:#9A6A22;">
+    <span style="color:#FFA31A;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#FFA31A;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#FFA31A;">FAULTS</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#6B4E20;">SCANNED 2m AGO</span>
+  </div>
+
+  <div style="flex-shrink:0;display:flex;align-items:center;gap:10px;padding:6px 12px 7px;">
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.06em;color:#FF4426;">2 ACTIVE</span>
+    <span style="font-size:11px;letter-spacing:0.06em;color:#9A6A22;">14 STORED</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#4A3A22;margin-left:auto;">3 CLEAN</span>
+  </div>
+
+  <div style="flex-grow:1;overflow:hidden;border-top:1px solid #241C13;">
+
+    <div style="padding:7px 12px 8px;border-bottom:1px solid #1C150E;background:#160D09;">
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:17px;font-weight:600;letter-spacing:0.04em;color:#FF4426;">P213A</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6B4E20;">PCM</span>
+        <span style="display:flex;align-items:center;gap:4px;margin-left:auto;">
+          <span style="width:5px;height:5px;border-radius:50%;background:#FF4426;"></span>
+          <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#FF4426;">ACTIVE &#183; LAMP</span>
+        </span>
+      </div>
+      <div style="font-size:12px;line-height:1.28;color:#C08070;margin-top:2px;">EGR Airflow Throttle Control Circuit 'B' Open</div>
+    </div>
+
+    <div style="padding:7px 12px 8px;border-bottom:1px solid #1C150E;background:#160D09;">
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:17px;font-weight:600;letter-spacing:0.04em;color:#FF4426;">P0676</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6B4E20;">PCM</span>
+        <span style="display:flex;align-items:center;gap:4px;margin-left:auto;">
+          <span style="width:5px;height:5px;border-radius:50%;background:#FF4426;"></span>
+          <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#FF4426;">ACTIVE</span>
+        </span>
+      </div>
+      <div style="font-size:12px;line-height:1.28;color:#C08070;margin-top:2px;">Cylinder 6 Glow Plug Circuit</div>
+    </div>
+
+    <div style="padding:7px 12px 8px;border-bottom:1px solid #1C150E;">
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:17px;font-weight:600;letter-spacing:0.04em;color:#FFA31A;">C0077</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6B4E20;">WCM</span>
+        <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#6B4E20;margin-left:auto;">STORED</span>
+      </div>
+      <div style="font-size:12px;line-height:1.28;color:#9A6A22;margin-top:2px;">Low Tire Pressure</div>
+    </div>
+
+    <div style="padding:7px 12px 8px;border-bottom:1px solid #1C150E;">
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:17px;font-weight:600;letter-spacing:0.04em;color:#FFA31A;">U1504</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6B4E20;">ABS</span>
+        <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#6B4E20;margin-left:auto;">STORED</span>
+      </div>
+      <div style="font-size:12px;line-height:1.28;color:#9A6A22;margin-top:2px;">Implausible Message Data Length Received from Steering Angle Sensor</div>
+    </div>
+
+    <div style="padding:7px 12px 8px;">
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:17px;font-weight:600;letter-spacing:0.04em;color:#FFA31A;">U0114</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6B4E20;">PCM</span>
+        <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#6B4E20;padding:1px 4px;border:1px solid #3A2C18;">&#215;2</span>
+        <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#6B4E20;margin-left:auto;">STORED</span>
+      </div>
+      <div style="font-size:12px;line-height:1.28;color:#9A6A22;margin-top:2px;">Lost Communication With Final Drive Control Module (FDCM)</div>
+    </div>
+
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;border-top:1px solid #241C13;background:#140C08;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B4E20" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#6B4E20;">HEALTH</span>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

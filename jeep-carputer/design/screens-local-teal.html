@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jeep Carputer Screens</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow+Semi+Condensed:wght@400;500;600&display=swap">
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#17130F; color:#C4A882;
+         font-family:'Barlow Semi Condensed','Arial Narrow',system-ui,sans-serif;
+         padding:28px 24px 60px; }
+  h1 { font-size:22px; font-weight:600; letter-spacing:.14em; color:#1AFFE0;
+       margin:0 0 4px; text-transform:uppercase; }
+  .sub { font-size:14px; color:#7A6449; margin:0 0 6px; max-width:66ch; line-height:1.5; }
+  .axis { font-size:13px; color:#8C7452; margin:0 0 28px; max-width:78ch; line-height:1.6;
+          border-left:2px solid #3A2C18; padding-left:12px; }
+  .sheet { display:flex; flex-wrap:wrap; gap:34px 30px; align-items:flex-start; }
+  figure { margin:0; width:240px; }
+  figcaption { font-size:11px; font-weight:600; letter-spacing:.16em; color:#229A8A;
+               text-transform:uppercase; margin-bottom:7px; }
+  .screen { width:240px; height:320px; box-shadow:0 0 0 1px #3A2C18, 0 10px 26px rgba(0,0,0,.6);
+            overflow:hidden; }
+  .note { font-size:12px; line-height:1.55; color:#7A6449; margin-top:10px; }
+  .note p { margin:0 0 7px; }
+  @media (prefers-color-scheme: light) {
+    body { background:#EDE7DE; color:#4A3C28; }
+    .sub, .axis, .note { color:#6B5A42; }
+  }
+</style>
+</head>
+<body>
+<h1>Jeep Carputer Screens</h1>
+<p class="sub">Nine cards at true 240&times;320 for the Waveshare ESP32-S3 panel &mdash; a welcome screen, five swipeable peers, one drill-down, one pre-mapping state, one overlay. Zoom to judge legibility; these are life size.</p>
+<p class="axis">HORIZONTAL AXIS - the five peers, wrapping. This is the only axis a moving driver uses: a thumb flick anywhere on the panel, no aiming.<br><br>After 30s untouched while the vehicle is moving, it animates back to DRIVE. Parked, it stays put.<br><br>Swipe UP on any card for its detail view. Long-press the status bar for 1s to reach settings and diagnostics - deliberately the hardest gesture.</p>
+<div class="sheet"><figure><figcaption>0 / WELCOME</figcaption><div class="screen"><div style="width:240px;height:320px;background:#070B0A;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;">
+
+  <div class="splash-mark" style="display:flex;align-items:center;">
+    <svg width="228" height="47" viewBox="0 0 244 50" fill="none">
+      <!-- WK face, traced from the 2004 front view. Each lamp is two OVERLAPPING circles,
+           outer slightly larger, bottoms near-level, and the cluster stands a touch taller
+           than the grille. Grille: seven slots at ~1:1.8 in a ~4:1 surround. -->
+      <circle cx="18" cy="25" r="15.5" stroke="#1AFFE0" stroke-width="2.6"></circle>
+      <circle cx="41" cy="25" r="14" stroke="#1AFFE0" stroke-width="2.6"></circle>
+      <circle cx="226" cy="25" r="15.5" stroke="#1AFFE0" stroke-width="2.6"></circle>
+      <circle cx="203" cy="25" r="14" stroke="#1AFFE0" stroke-width="2.6"></circle>
+      <rect x="62" y="10" width="120" height="30" rx="4.5" stroke="#1AFFE0" stroke-width="2.6"></rect>
+      <rect x="67"     y="14" width="12" height="22" rx="1.5" fill="#1AFFE0"></rect>
+      <rect x="83.33"  y="14" width="12" height="22" rx="1.5" fill="#1AFFE0"></rect>
+      <rect x="99.67"  y="14" width="12" height="22" rx="1.5" fill="#1AFFE0"></rect>
+      <rect x="116"    y="14" width="12" height="22" rx="1.5" fill="#1AFFE0"></rect>
+      <rect x="132.33" y="14" width="12" height="22" rx="1.5" fill="#1AFFE0"></rect>
+      <rect x="148.67" y="14" width="12" height="22" rx="1.5" fill="#1AFFE0"></rect>
+      <rect x="165"    y="14" width="12" height="22" rx="1.5" fill="#1AFFE0"></rect>
+    </svg>
+  </div>
+
+  <div class="splash-id" style="position:absolute;left:0;right:0;bottom:24px;display:flex;flex-direction:column;align-items:center;gap:3px;">
+    <div style="width:48px;height:1px;background:#183A35;margin-bottom:11px;"></div>
+    <div style="font-size:14px;font-weight:600;letter-spacing:0.17em;color:#229A8A;text-transform:uppercase;">latonita&#8209;carputer</div>
+    <div style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:13px;letter-spacing:0.1em;color:#224A45;">v1.0</div>
+  </div>
+
+</div></div><div class="note"><p>Fades in on ignition, holds, fades out into DRIVE. Budget ~1.9s total: 620ms in, ~900ms hold, 400ms out - long enough to read, short enough not to be in the way when you just want the truck moving.</p><p>The hold is not decorative. At328Link::begin() drains the ROM bootloader noise off IO43 and handshakes with the 328; the splash is what covers that. Hold until the handshake returns, floor the wait at ~900ms so it never flickers past, and ceiling it so a dead link cannot hang the boot.</p><p>The mark is the WK's own face - seven short wide slots in a chrome surround, flanked by wedge headlamps that taper and wrap outboard. Drawn from the 2004 front-view reference, not the Wrangler's upright grille and round lamps. The hood wordmark is deliberately not reproduced.</p></div></figure><figure><figcaption>1 / DRIVE</figcaption><div class="screen"><div style="width:240px;height:320px;background:#070B0A;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132421;font-size:12px;letter-spacing:0.04em;color:#229A8A;">
+    <span style="color:#1AFFE0;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#1AFFE0;display:inline-block;"></span></span>
+  </div>
+
+  <div style="flex-grow:1;display:flex;flex-direction:column;justify-content:center;padding:8px 12px 4px;">
+    <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#206B62;">TRIP AVERAGE</div>
+    <div style="display:flex;align-items:baseline;gap:6px;margin-top:-4px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#1AFFE0;">9.4</span>
+      <span style="font-size:13px;letter-spacing:0.04em;color:#229A8A;">L/100km</span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;padding:0 12px 8px;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#206B62;margin-bottom:4px;">FLOW NOW</div>
+    <div style="display:flex;gap:2px;height:10px;">
+      <span style="flex-grow:1;background:#1AFFE0;"></span>
+      <span style="flex-grow:1;background:#1AFFE0;"></span>
+      <span style="flex-grow:1;background:#1AFFE0;"></span>
+      <span style="flex-grow:1;background:#1AFFE0;"></span>
+      <span style="flex-grow:1;background:#1AFFE0;"></span>
+      <span style="flex-grow:1;background:#1AFFE0;"></span>
+      <span style="flex-grow:1;background:#1AFFE0;"></span>
+      <span style="flex-grow:1;background:#1AFFE0;"></span>
+      <span style="flex-grow:1;background:#1AFFE0;"></span>
+      <span style="flex-grow:1;background:#122A25;"></span>
+      <span style="flex-grow:1;background:#122A25;"></span>
+      <span style="flex-grow:1;background:#122A25;"></span>
+      <span style="flex-grow:1;background:#122A25;"></span>
+      <span style="flex-grow:1;background:#122A25;"></span>
+      <span style="flex-grow:1;background:#122A25;"></span>
+      <span style="flex-grow:1;background:#122A25;"></span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #132421;">
+    <div style="padding:6px 12px;border-right:1px solid #132421;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#206B62;">RANGE</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:28px;font-weight:500;line-height:1;color:#1AFFE0;">384</span>
+        <span style="font-size:11px;color:#206B62;">km</span>
+      </div>
+    </div>
+    <div style="padding:6px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#206B62;">IN TANK</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:28px;font-weight:500;line-height:1;color:#1AFFE0;">35.5</span>
+        <span style="font-size:11px;color:#206B62;">L</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #132421;">
+    <div style="padding:6px 12px;border-right:1px solid #132421;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#206B62;">COOLANT</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:28px;font-weight:500;line-height:1;color:#1AFFE0;">89</span>
+        <span style="font-size:11px;color:#206B62;">&#176;C</span>
+      </div>
+    </div>
+    <div style="padding:6px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#206B62;">BATTERY</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:28px;font-weight:500;line-height:1;color:#1AFFE0;">14.1</span>
+        <span style="font-size:11px;color:#206B62;">V</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;height:30px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid #132421;">
+    <span style="font-size:10px;font-weight:600;letter-spacing:0.14em;color:#206B62;">TYRES</span>
+    <span style="display:flex;align-items:center;gap:8px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:15px;letter-spacing:0.06em;color:#229A8A;">33 32 33</span>
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:15px;font-weight:600;color:#FF4426;">30</span>
+    </span>
+  </div>
+
+  <div style="flex-shrink:0;height:30px;display:flex;align-items:center;gap:8px;padding:0 12px;border-top:1px solid #132421;background:#160D09;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FF4426" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 L2 20 Z"></path><line x1="12" y1="10" x2="12" y2="14"></line><line x1="12" y1="17" x2="12" y2="17"></line></svg>
+    <span style="font-size:12px;font-weight:600;letter-spacing:0.06em;color:#FF4426;">2 ACTIVE FAULTS</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#206B62;margin-left:auto;">14 stored</span>
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
+    <span style="width:5px;height:5px;border-radius:50%;background:#1AFFE0;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+  </div>
+
+</div></div><div class="note"><p>The big number is the TRIP AVERAGE, not instant. Instant L/100km from 0x1A7 under-reads by 3-6x and no single constant fits, so it is not shown as a number anywhere.</p><p>FLOW NOW is that same signal as an unlabelled relative bar - the shape is trustworthy, the scale is not. Honest use of a signal you cannot yet calibrate.</p><p>Range and litres come from 0x159 B5 x 0.5 L against the confirmed 78.0 L tank - zero unverified constants.</p></div></figure><figure><figcaption>2 / TYRES</figcaption><div class="screen"><div style="width:240px;height:320px;background:#070B0A;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132421;font-size:12px;letter-spacing:0.04em;color:#229A8A;">
+    <span style="color:#1AFFE0;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#1AFFE0;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#1AFFE0;">TYRES</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#206B62;">READ 4s AGO</span>
+  </div>
+
+  <div style="flex-grow:1;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));grid-template-rows:repeat(2, minmax(0, 1fr));gap:1px;background:#132421;margin:6px 0 0;">
+
+    <div style="background:#070B0A;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#206B62;">LF</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:46px;font-weight:500;line-height:0.95;color:#1AFFE0;">33</span>
+        <span style="font-size:11px;color:#206B62;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#229A8A;">+1 since cold</div>
+    </div>
+
+    <div style="background:#070B0A;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#206B62;">RF</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:46px;font-weight:500;line-height:0.95;color:#1AFFE0;">32</span>
+        <span style="font-size:11px;color:#206B62;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#229A8A;">+1 since cold</div>
+    </div>
+
+    <div style="background:#070B0A;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#206B62;">LR</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:46px;font-weight:500;line-height:0.95;color:#1AFFE0;">33</span>
+        <span style="font-size:11px;color:#206B62;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#229A8A;">+2 since cold</div>
+    </div>
+
+    <div style="background:#070B0A;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#8A2E1C;">RR</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:46px;font-weight:500;line-height:0.95;color:#FF4426;">30</span>
+        <span style="font-size:11px;color:#8A2E1C;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#FF4426;">4 under target</div>
+    </div>
+
+  </div>
+
+  <div style="height:30px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid #132421;">
+    <span style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#206B62;">SPARE</span>
+    <span style="display:flex;align-items:baseline;gap:4px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:20px;font-weight:500;color:#206B62;">8</span>
+      <span style="font-size:11px;color:#206B62;">psi &#183; unconfirmed sensor</span>
+    </span>
+  </div>
+
+  <div style="height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid #132421;background:#08140F;">
+    <span style="font-size:11px;letter-spacing:0.06em;color:#229A8A;">TARGET 30&#8211;34 psi</span>
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.08em;color:#FF4426;">1 LOW</span>
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#1AFFE0;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+  </div>
+
+</div></div><div class="note"><p>WCM 21 3B, four bytes, 1 psi per bit. Polled every 30s in the background even when off-screen, so the card opens populated and DRIVE can carry a live chip.</p><p>Byte-to-corner order is UNMAPPED. The board below is what ships until the mapping wizard has been run once.</p></div></figure><figure><figcaption>3 / HEALTH</figcaption><div class="screen"><div style="width:240px;height:320px;background:#070B0A;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132421;font-size:12px;letter-spacing:0.04em;color:#229A8A;">
+    <span style="color:#1AFFE0;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#1AFFE0;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#1AFFE0;">HEALTH</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#206B62;">CHARGING</span>
+  </div>
+
+  <div style="flex-shrink:0;padding:2px 12px 8px;">
+    <div style="display:flex;align-items:baseline;gap:6px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:56px;font-weight:500;line-height:0.95;color:#1AFFE0;">14.1</span>
+      <span style="font-size:13px;color:#229A8A;">V</span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #132421;">
+    <div style="padding:5px 12px;border-right:1px solid #132421;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#206B62;">CRANK DIP</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:22px;font-weight:500;line-height:1;color:#1AFFE0;">10.4</span>
+        <span style="font-size:10px;color:#206B62;">V today</span>
+      </div>
+    </div>
+    <div style="padding:5px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#206B62;">RESTED</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:22px;font-weight:500;line-height:1;color:#1AFFE0;">12.6</span>
+        <span style="font-size:10px;color:#206B62;">V</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;padding:7px 12px 5px;border-top:1px solid #132421;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#206B62;margin-bottom:5px;">LAMPS</div>
+    <div style="display:flex;gap:5px;">
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #122A25;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#224A45;">OIL</span>
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #122A25;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#224A45;">ABS</span>
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #122A25;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#224A45;">CHARGE</span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;padding:7px 12px 5px;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#206B62;margin-bottom:5px;">FLUIDS</div>
+    <div style="display:flex;gap:5px;">
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #122A25;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#224A45;">WASH</span>
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #122A25;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#224A45;">COOL</span>
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #122A25;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#224A45;">BRAKE</span>
+    </div>
+  </div>
+
+  <div style="flex-grow:1;"></div>
+
+  <div style="flex-shrink:0;height:44px;display:flex;align-items:center;gap:9px;padding:0 12px;border-top:1px solid #132421;background:#160D09;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF4426" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 L2 20 Z"></path><line x1="12" y1="10" x2="12" y2="14"></line><line x1="12" y1="17" x2="12" y2="17"></line></svg>
+    <span style="display:flex;flex-direction:column;">
+      <span style="font-size:13px;font-weight:600;letter-spacing:0.04em;color:#FF4426;">2 active &#183; 14 stored</span>
+      <span style="font-size:10px;letter-spacing:0.04em;color:#206B62;">across 10 modules</span>
+    </span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#206B62" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left:auto;"><polyline points="9 18 15 12 9 6"></polyline></svg>
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#1AFFE0;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+  </div>
+
+</div></div><div class="note"><p>MIL is deliberately absent. Its bit reads TRUE in every sample including at speed - either the car really has a fault or the bit is wrong, and a permanently-lit warning is worse than none.</p><p>OIL is the one lamp with confirmed behaviour. ABS, CHARGE and all three fluid flags have never been seen asserted, so they are drawn in their unlit state only.</p></div></figure><figure><figcaption>4 / TRIP</figcaption><div class="screen"><div style="width:240px;height:320px;background:#070B0A;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132421;font-size:12px;letter-spacing:0.04em;color:#229A8A;">
+    <span style="color:#1AFFE0;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#1AFFE0;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#1AFFE0;">TRIP A</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#206B62;">SINCE 8 SEP</span>
+  </div>
+
+  <div style="flex-shrink:0;padding:2px 12px 8px;">
+    <div style="display:flex;align-items:baseline;gap:6px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:56px;font-weight:500;line-height:0.95;color:#1AFFE0;">247.8</span>
+      <span style="font-size:13px;color:#229A8A;">km</span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #132421;">
+    <div style="padding:5px 12px;border-right:1px solid #132421;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#206B62;">USED</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:24px;font-weight:500;line-height:1;color:#1AFFE0;">23.5</span>
+        <span style="font-size:10px;color:#206B62;">L</span>
+      </div>
+    </div>
+    <div style="padding:5px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#206B62;">AVERAGE</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:24px;font-weight:500;line-height:1;color:#1AFFE0;">9.4</span>
+        <span style="font-size:10px;color:#206B62;">L/100</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #132421;">
+    <div style="padding:5px 12px;border-right:1px solid #132421;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#206B62;">MOVING</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:24px;font-weight:500;line-height:1;color:#1AFFE0;">3:42</span>
+        <span style="font-size:10px;color:#206B62;">+0:51 idle</span>
+      </div>
+    </div>
+    <div style="padding:5px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#206B62;">AVG SPEED</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:24px;font-weight:500;line-height:1;color:#1AFFE0;">67</span>
+        <span style="font-size:10px;color:#206B62;">km/h</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-grow:1;padding:8px 12px 4px;border-top:1px solid #132421;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#206B62;margin-bottom:6px;">PEAKS THIS TRIP</div>
+    <div style="display:flex;flex-direction:column;gap:5px;font-size:12px;">
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:#206B62;letter-spacing:0.04em;">Max coolant</span>
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:14px;color:#1AFFE0;">94 &#176;C</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:#206B62;letter-spacing:0.04em;">Min voltage</span>
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:14px;color:#1AFFE0;">13.8 V</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:#206B62;letter-spacing:0.04em;">Max speed</span>
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:14px;color:#1AFFE0;">118 km/h</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid #132421;background:#08140F;">
+    <span style="font-size:10px;font-weight:600;letter-spacing:0.14em;color:#206B62;">ODOMETER</span>
+    <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:16px;letter-spacing:0.04em;color:#229A8A;">246 279 km</span>
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#1AFFE0;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+  </div>
+
+</div></div><div class="note"><p>Distance integrates the 0x002 wheel counters at 4cm per count - mean of left and right to cancel cornering. They are 16-bit and wrap every 2.621km, so always mask the delta.</p><p>Odometer is broadcast 0x014. FCMCGW 21A3 is unreachable on this car.</p></div></figure><figure><figcaption>5 / TILT</figcaption><div class="screen"><div style="width:240px;height:320px;background:#070B0A;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132421;font-size:12px;letter-spacing:0.04em;color:#229A8A;">
+    <span style="color:#1AFFE0;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#1AFFE0;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#1AFFE0;">TILT</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#206B62;">ZEROED 11 SEP</span>
+  </div>
+
+  <div style="flex-shrink:0;padding:6px 0 0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));">
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;border-right:1px solid #132421;padding:0 6px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#206B62;">ROLL</div>
+      <svg width="104" height="76" viewBox="0 0 104 76" fill="none">
+        <line x1="6" y1="60" x2="98" y2="60" stroke="#122A25" stroke-width="1.5" stroke-dasharray="4 4"></line>
+        <g transform="rotate(-11 52 42)">
+          <path d="M30 26 L74 26 L78 44 L26 44 Z" stroke="#1AFFE0" stroke-width="2.4" stroke-linejoin="round"></path>
+          <circle cx="36" cy="50" r="6" stroke="#1AFFE0" stroke-width="2.4"></circle>
+          <circle cx="68" cy="50" r="6" stroke="#1AFFE0" stroke-width="2.4"></circle>
+        </g>
+      </svg>
+      <div style="display:flex;align-items:baseline;gap:2px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:38px;font-weight:500;line-height:1;color:#1AFFE0;">11</span>
+        <span style="font-size:14px;color:#229A8A;">&#176;</span>
+      </div>
+      <div style="font-size:10px;letter-spacing:0.08em;color:#206B62;">LEFT</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 6px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#206B62;">PITCH</div>
+      <svg width="104" height="76" viewBox="0 0 104 76" fill="none">
+        <line x1="6" y1="60" x2="98" y2="60" stroke="#122A25" stroke-width="1.5" stroke-dasharray="4 4"></line>
+        <g transform="rotate(7 52 42)">
+          <path d="M20 40 L24 30 L44 30 L52 22 L76 22 L84 40 Z" stroke="#1AFFE0" stroke-width="2.4" stroke-linejoin="round"></path>
+          <circle cx="34" cy="46" r="6" stroke="#1AFFE0" stroke-width="2.4"></circle>
+          <circle cx="72" cy="46" r="6" stroke="#1AFFE0" stroke-width="2.4"></circle>
+        </g>
+      </svg>
+      <div style="display:flex;align-items:baseline;gap:2px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:38px;font-weight:500;line-height:1;color:#1AFFE0;">7</span>
+        <span style="font-size:14px;color:#229A8A;">&#176;</span>
+      </div>
+      <div style="font-size:10px;letter-spacing:0.08em;color:#206B62;">NOSE UP</div>
+    </div>
+
+  </div>
+
+  <div style="flex-grow:1;"></div>
+
+  <div style="flex-shrink:0;padding:8px 12px;border-top:1px solid #132421;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#206B62;margin-bottom:6px;">PEAK HELD</div>
+    <div style="display:flex;flex-direction:column;gap:5px;font-size:12px;">
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:#206B62;letter-spacing:0.04em;">Max roll</span>
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:14px;color:#1AFFE0;">18&#176; left &#183; 14&#176; right</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:#206B62;letter-spacing:0.04em;">Max pitch</span>
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:14px;color:#1AFFE0;">21&#176; up &#183; 9&#176; down</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;height:32px;display:flex;align-items:center;justify-content:center;border-top:1px solid #132421;background:#08140F;">
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.12em;color:#229A8A;">HOLD TO RE-ZERO</span>
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#183A35;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#1AFFE0;"></span>
+  </div>
+
+</div></div><div class="note"><p>The only screen fed entirely by the onboard IMU - no CAN, no link dependency. It keeps working when the 328 is unplugged.</p><p>The vehicle tilts against a fixed horizon rather than the reverse; that reads correctly at a glance.</p></div></figure><figure><figcaption>HEALTH / faults drill-down</figcaption><div class="screen"><div style="width:240px;height:320px;background:#070B0A;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132421;font-size:12px;letter-spacing:0.04em;color:#229A8A;">
+    <span style="color:#1AFFE0;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#1AFFE0;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#1AFFE0;">FAULTS</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#206B62;">SCANNED 2m AGO</span>
+  </div>
+
+  <div style="flex-shrink:0;display:flex;align-items:center;gap:10px;padding:6px 12px 7px;">
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.06em;color:#FF4426;">2 ACTIVE</span>
+    <span style="font-size:11px;letter-spacing:0.06em;color:#229A8A;">14 STORED</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#224A45;margin-left:auto;">3 CLEAN</span>
+  </div>
+
+  <div style="flex-grow:1;overflow:hidden;border-top:1px solid #132421;">
+
+    <div style="padding:7px 12px 8px;border-bottom:1px solid #0E1C19;background:#160D09;">
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:17px;font-weight:600;letter-spacing:0.04em;color:#FF4426;">P213A</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#206B62;">PCM</span>
+        <span style="display:flex;align-items:center;gap:4px;margin-left:auto;">
+          <span style="width:5px;height:5px;border-radius:50%;background:#FF4426;"></span>
+          <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#FF4426;">ACTIVE &#183; LAMP</span>
+        </span>
+      </div>
+      <div style="font-size:12px;line-height:1.28;color:#C08070;margin-top:2px;">EGR Airflow Throttle Control Circuit 'B' Open</div>
+    </div>
+
+    <div style="padding:7px 12px 8px;border-bottom:1px solid #0E1C19;background:#160D09;">
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:17px;font-weight:600;letter-spacing:0.04em;color:#FF4426;">P0676</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#206B62;">PCM</span>
+        <span style="display:flex;align-items:center;gap:4px;margin-left:auto;">
+          <span style="width:5px;height:5px;border-radius:50%;background:#FF4426;"></span>
+          <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#FF4426;">ACTIVE</span>
+        </span>
+      </div>
+      <div style="font-size:12px;line-height:1.28;color:#C08070;margin-top:2px;">Cylinder 6 Glow Plug Circuit</div>
+    </div>
+
+    <div style="padding:7px 12px 8px;border-bottom:1px solid #0E1C19;">
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:17px;font-weight:600;letter-spacing:0.04em;color:#1AFFE0;">C0077</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#206B62;">WCM</span>
+        <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#206B62;margin-left:auto;">STORED</span>
+      </div>
+      <div style="font-size:12px;line-height:1.28;color:#229A8A;margin-top:2px;">Low Tire Pressure</div>
+    </div>
+
+    <div style="padding:7px 12px 8px;border-bottom:1px solid #0E1C19;">
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:17px;font-weight:600;letter-spacing:0.04em;color:#1AFFE0;">U1504</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#206B62;">ABS</span>
+        <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#206B62;margin-left:auto;">STORED</span>
+      </div>
+      <div style="font-size:12px;line-height:1.28;color:#229A8A;margin-top:2px;">Implausible Message Data Length Received from Steering Angle Sensor</div>
+    </div>
+
+    <div style="padding:7px 12px 8px;">
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:17px;font-weight:600;letter-spacing:0.04em;color:#1AFFE0;">U0114</span>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#206B62;">PCM</span>
+        <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#206B62;padding:1px 4px;border:1px solid #183A35;">&#215;2</span>
+        <span style="font-size:9px;font-weight:600;letter-spacing:0.1em;color:#206B62;margin-left:auto;">STORED</span>
+      </div>
+      <div style="font-size:12px;line-height:1.28;color:#229A8A;margin-top:2px;">Lost Communication With Final Drive Control Module (FDCM)</div>
+    </div>
+
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;border-top:1px solid #132421;background:#08140F;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#206B62" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    <span style="font-size:10px;font-weight:600;letter-spacing:0.12em;color:#206B62;">HEALTH</span>
+  </div>
+
+</div></div><div class="note"><p>Swipe up from HEALTH; swipe down to return. The chevron footer marks depth, where the peers show dots.</p><p>Every row is real: this is the recorded 16-fault scan of your truck. Active sorts above stored.</p><p>Descriptions run 4-72 characters (median 40), so the text box wraps to three lines - U1504 at 67 chars is the worst real case and sets that height.</p><p>PCM reports U0114 and U0103 TWICE in one reply, so rows are de-duplicated with a count badge rather than listed twice. There is no pending state on this protocol and no clear path, so the screen is read-only by design.</p></div></figure><figure><figcaption>TYRES / before mapping</figcaption><div class="screen"><div style="width:240px;height:320px;background:#070B0A;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132421;font-size:12px;letter-spacing:0.04em;color:#229A8A;">
+    <span style="color:#1AFFE0;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#1AFFE0;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#1AFFE0;">TYRES</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#206B62;">READ 4s AGO</span>
+  </div>
+
+  <div style="flex-grow:1;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));grid-template-rows:repeat(2, minmax(0, 1fr));gap:1px;background:#132421;margin:6px 0 0;">
+
+    <div style="background:#070B0A;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#206B62;">SENSOR 1</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:42px;font-weight:500;line-height:0.95;color:#1AFFE0;">33</span>
+        <span style="font-size:11px;color:#206B62;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#206B62;">awaiting map</div>
+    </div>
+
+    <div style="background:#070B0A;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#206B62;">SENSOR 2</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:42px;font-weight:500;line-height:0.95;color:#1AFFE0;">32</span>
+        <span style="font-size:11px;color:#206B62;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#206B62;">awaiting map</div>
+    </div>
+
+    <div style="background:#070B0A;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#206B62;">SENSOR 3</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:42px;font-weight:500;line-height:0.95;color:#1AFFE0;">33</span>
+        <span style="font-size:11px;color:#206B62;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#206B62;">awaiting map</div>
+    </div>
+
+    <div style="background:#070B0A;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#206B62;">SENSOR 4</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:42px;font-weight:500;line-height:0.95;color:#1AFFE0;">30</span>
+        <span style="font-size:11px;color:#206B62;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#206B62;">awaiting map</div>
+    </div>
+
+  </div>
+
+  <div style="height:30px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid #132421;">
+    <span style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#206B62;">SPARE</span>
+    <span style="display:flex;align-items:baseline;gap:4px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:20px;font-weight:500;color:#206B62;">8</span>
+      <span style="font-size:11px;color:#206B62;">psi &#183; unconfirmed sensor</span>
+    </span>
+  </div>
+
+  <div style="height:34px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 12px;border-top:1px solid #132421;background:#08140F;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1AFFE0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="12.5"></line><line x1="12" y1="16" x2="12" y2="16"></line></svg><span style="font-size:11px;letter-spacing:0.04em;color:#1AFFE0;">Corners not mapped</span><span style="font-size:11px;font-weight:600;letter-spacing:0.08em;color:#229A8A;margin-left:auto;">MAP &#8250;</span></div>
+
+</div></div></figure><figure><figcaption>CRITICAL ALERT / overlay</figcaption><div class="screen"><div style="width:240px;height:320px;background:#070B0A;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;border-top:3px solid #FF4426;">
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #3A1610;font-size:12px;letter-spacing:0.04em;color:#8A2E1C;background:#1A0A07;">
+    <span style="color:#FF4426;font-weight:600;">14:22</span>
+    <span style="font-weight:600;letter-spacing:0.12em;">CRITICAL</span>
+    <span>NOW</span>
+  </div>
+
+  <div style="flex-shrink:0;display:flex;justify-content:center;padding:20px 0 10px;">
+    <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="#FF4426" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 L2 20 Z"></path><line x1="12" y1="10" x2="12" y2="14.5"></line><line x1="12" y1="17.4" x2="12" y2="17.4"></line></svg>
+  </div>
+
+  <div style="flex-shrink:0;text-align:center;padding:0 14px;">
+    <div style="font-size:17px;font-weight:600;letter-spacing:0.09em;color:#FF4426;line-height:1.15;">TYRE PRESSURE<br>FALLING</div>
+  </div>
+
+  <div style="flex-shrink:0;text-align:center;padding:14px 14px 0;">
+    <div style="font-size:11px;font-weight:600;letter-spacing:0.18em;color:#8A5E4A;">RIGHT REAR</div>
+    <div style="display:flex;align-items:baseline;justify-content:center;gap:6px;margin-top:-2px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:1;color:#FF4426;">24</span>
+      <span style="font-size:14px;color:#8A5E4A;">psi</span>
+    </div>
+    <div style="font-size:13px;letter-spacing:0.03em;color:#C08070;margin-top:2px;">down 6 psi in 4 minutes</div>
+  </div>
+
+  <div style="flex-grow:1;"></div>
+
+  <div style="flex-shrink:0;height:58px;display:flex;align-items:center;justify-content:center;border-top:1px solid #3A1610;background:#1A0A07;">
+    <span style="font-size:15px;font-weight:600;letter-spacing:0.16em;color:#FF4426;">DISMISS</span>
+  </div>
+
+</div></div><div class="note"><p>Dark with red accents, never a red flood - a full red screen at night blinds you.</p><p>Interrupts whatever card is showing, latches until dismissed. One 58px target, no way to mis-tap it.</p><p>Amber WARN cases get a status-bar banner instead and never take the screen.</p></div></figure></div>
+<p class="axis" style="margin-top:34px;">NO NUMBER LIES ABOUT ITS AGE<br><br>ATMA delivers only ~61 of ~168 frames/sec, so gaps are normal. Every value past its TTL dims and reverts to dashes rather than silently holding. Nothing here has talked to a real car yet, which makes a frozen-but-plausible number the worst failure mode available - it is the one that gets believed.</p>
+</body>
+</html>

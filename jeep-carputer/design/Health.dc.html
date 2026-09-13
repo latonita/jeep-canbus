@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap">
+  <style>
+    body { margin:0; background:#0B0907; }
+    a { color:#FFA31A; } a:hover { color:#FFC46B; }
+  </style>
+</helmet>
+<div style="width:240px;height:320px;background:#0B0907;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #241C13;font-size:12px;letter-spacing:0.04em;color:#9A6A22;">
+    <span style="color:#FFA31A;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#FFA31A;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#FFA31A;">HEALTH</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#6B4E20;">CHARGING</span>
+  </div>
+
+  <div style="flex-shrink:0;padding:2px 12px 8px;">
+    <div style="display:flex;align-items:baseline;gap:6px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:56px;font-weight:500;line-height:0.95;color:#FFA31A;">14.1</span>
+      <span style="font-size:13px;color:#9A6A22;">V</span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #241C13;">
+    <div style="padding:5px 12px;border-right:1px solid #241C13;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">CRANK DIP</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:22px;font-weight:500;line-height:1;color:#FFA31A;">10.4</span>
+        <span style="font-size:10px;color:#6B4E20;">V today</span>
+      </div>
+    </div>
+    <div style="padding:5px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#6B4E20;">RESTED</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:22px;font-weight:500;line-height:1;color:#FFA31A;">12.6</span>
+        <span style="font-size:10px;color:#6B4E20;">V</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;padding:7px 12px 5px;border-top:1px solid #241C13;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;margin-bottom:5px;">LAMPS</div>
+    <div style="display:flex;gap:5px;">
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #2A1F12;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#4A3A22;">OIL</span>
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #2A1F12;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#4A3A22;">ABS</span>
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #2A1F12;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#4A3A22;">CHARGE</span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;padding:7px 12px 5px;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;margin-bottom:5px;">FLUIDS</div>
+    <div style="display:flex;gap:5px;">
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #2A1F12;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#4A3A22;">WASH</span>
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #2A1F12;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#4A3A22;">COOL</span>
+      <span style="flex-grow:1;text-align:center;padding:5px 0;border:1px solid #2A1F12;font-size:11px;font-weight:600;letter-spacing:0.08em;color:#4A3A22;">BRAKE</span>
+    </div>
+  </div>
+
+  <div style="flex-grow:1;"></div>
+
+  <div style="flex-shrink:0;height:44px;display:flex;align-items:center;gap:9px;padding:0 12px;border-top:1px solid #241C13;background:#160D09;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF4426" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 L2 20 Z"></path><line x1="12" y1="10" x2="12" y2="14"></line><line x1="12" y1="17" x2="12" y2="17"></line></svg>
+    <span style="display:flex;flex-direction:column;">
+      <span style="font-size:13px;font-weight:600;letter-spacing:0.04em;color:#FF4426;">2 active &#183; 14 stored</span>
+      <span style="font-size:10px;letter-spacing:0.04em;color:#6B4E20;">across 10 modules</span>
+    </span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B4E20" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left:auto;"><polyline points="9 18 15 12 9 6"></polyline></svg>
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#FFA31A;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

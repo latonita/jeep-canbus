@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap">
+  <style>
+    body { margin:0; background:#0B0907; }
+    a { color:#FFA31A; } a:hover { color:#FFC46B; }
+  </style>
+</helmet>
+<div style="width:240px;height:320px;background:#0B0907;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #241C13;font-size:12px;letter-spacing:0.04em;color:#9A6A22;">
+    <span style="color:#FFA31A;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#FFA31A;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#FFA31A;">TILT</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#6B4E20;">ZEROED 11 SEP</span>
+  </div>
+
+  <div style="flex-shrink:0;padding:6px 0 0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));">
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;border-right:1px solid #241C13;padding:0 6px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;">ROLL</div>
+      <svg width="104" height="76" viewBox="0 0 104 76" fill="none">
+        <line x1="6" y1="60" x2="98" y2="60" stroke="#2A1F12" stroke-width="1.5" stroke-dasharray="4 4"></line>
+        <g transform="rotate(-11 52 42)">
+          <path d="M30 26 L74 26 L78 44 L26 44 Z" stroke="#FFA31A" stroke-width="2.4" stroke-linejoin="round"></path>
+          <circle cx="36" cy="50" r="6" stroke="#FFA31A" stroke-width="2.4"></circle>
+          <circle cx="68" cy="50" r="6" stroke="#FFA31A" stroke-width="2.4"></circle>
+        </g>
+      </svg>
+      <div style="display:flex;align-items:baseline;gap:2px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:38px;font-weight:500;line-height:1;color:#FFA31A;">11</span>
+        <span style="font-size:14px;color:#9A6A22;">&#176;</span>
+      </div>
+      <div style="font-size:10px;letter-spacing:0.08em;color:#6B4E20;">LEFT</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 6px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;">PITCH</div>
+      <svg width="104" height="76" viewBox="0 0 104 76" fill="none">
+        <line x1="6" y1="60" x2="98" y2="60" stroke="#2A1F12" stroke-width="1.5" stroke-dasharray="4 4"></line>
+        <g transform="rotate(7 52 42)">
+          <path d="M20 40 L24 30 L44 30 L52 22 L76 22 L84 40 Z" stroke="#FFA31A" stroke-width="2.4" stroke-linejoin="round"></path>
+          <circle cx="34" cy="46" r="6" stroke="#FFA31A" stroke-width="2.4"></circle>
+          <circle cx="72" cy="46" r="6" stroke="#FFA31A" stroke-width="2.4"></circle>
+        </g>
+      </svg>
+      <div style="display:flex;align-items:baseline;gap:2px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:38px;font-weight:500;line-height:1;color:#FFA31A;">7</span>
+        <span style="font-size:14px;color:#9A6A22;">&#176;</span>
+      </div>
+      <div style="font-size:10px;letter-spacing:0.08em;color:#6B4E20;">NOSE UP</div>
+    </div>
+
+  </div>
+
+  <div style="flex-grow:1;"></div>
+
+  <div style="flex-shrink:0;padding:8px 12px;border-top:1px solid #241C13;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;margin-bottom:6px;">PEAK HELD</div>
+    <div style="display:flex;flex-direction:column;gap:5px;font-size:12px;">
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:#6B4E20;letter-spacing:0.04em;">Max roll</span>
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:14px;color:#FFA31A;">18&#176; left &#183; 14&#176; right</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:#6B4E20;letter-spacing:0.04em;">Max pitch</span>
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:14px;color:#FFA31A;">21&#176; up &#183; 9&#176; down</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;height:32px;display:flex;align-items:center;justify-content:center;border-top:1px solid #241C13;background:#140C08;">
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.12em;color:#9A6A22;">HOLD TO RE-ZERO</span>
+  </div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#3A2C18;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#FFA31A;"></span>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

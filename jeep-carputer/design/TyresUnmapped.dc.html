@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap">
+  <style>
+    body { margin:0; background:#0B0907; }
+    a { color:#FFA31A; } a:hover { color:#FFC46B; }
+  </style>
+</helmet>
+<div style="width:240px;height:320px;background:#0B0907;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #241C13;font-size:12px;letter-spacing:0.04em;color:#9A6A22;">
+    <span style="color:#FFA31A;font-weight:600;">14:22</span>
+    <span>RUN</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#FFA31A;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:4px 10px 0;">
+    <span style="font-size:13px;font-weight:600;letter-spacing:0.14em;color:#FFA31A;">TYRES</span>
+    <span style="font-size:11px;letter-spacing:0.04em;color:#6B4E20;">READ 4s AGO</span>
+  </div>
+
+  <div style="flex-grow:1;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));grid-template-rows:repeat(2, minmax(0, 1fr));gap:1px;background:#241C13;margin:6px 0 0;">
+
+    <div style="background:#0B0907;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;">SENSOR 1</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:42px;font-weight:500;line-height:0.95;color:#FFA31A;">33</span>
+        <span style="font-size:11px;color:#6B4E20;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#6B4E20;">awaiting map</div>
+    </div>
+
+    <div style="background:#0B0907;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;">SENSOR 2</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:42px;font-weight:500;line-height:0.95;color:#FFA31A;">32</span>
+        <span style="font-size:11px;color:#6B4E20;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#6B4E20;">awaiting map</div>
+    </div>
+
+    <div style="background:#0B0907;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;">SENSOR 3</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:42px;font-weight:500;line-height:0.95;color:#FFA31A;">33</span>
+        <span style="font-size:11px;color:#6B4E20;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#6B4E20;">awaiting map</div>
+    </div>
+
+    <div style="background:#0B0907;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;">SENSOR 4</div>
+      <div style="display:flex;align-items:baseline;gap:4px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:42px;font-weight:500;line-height:0.95;color:#FFA31A;">30</span>
+        <span style="font-size:11px;color:#6B4E20;">psi</span>
+      </div>
+      <div style="font-size:11px;letter-spacing:0.04em;color:#6B4E20;">awaiting map</div>
+    </div>
+
+  </div>
+
+  <div style="height:30px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-top:1px solid #241C13;">
+    <span style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#6B4E20;">SPARE</span>
+    <span style="display:flex;align-items:baseline;gap:4px;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:20px;font-weight:500;color:#6B4E20;">8</span>
+      <span style="font-size:11px;color:#6B4E20;">psi &#183; unconfirmed sensor</span>
+    </span>
+  </div>
+
+  <div style="height:34px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 12px;border-top:1px solid #241C13;background:#140C08;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FFA31A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="12.5"></line><line x1="12" y1="16" x2="12" y2="16"></line></svg><span style="font-size:11px;letter-spacing:0.04em;color:#FFA31A;">Corners not mapped</span><span style="font-size:11px;font-weight:600;letter-spacing:0.08em;color:#9A6A22;margin-left:auto;">MAP &#8250;</span></div>
+
+</div>
+</x-dc>
+</body>
+</html>
