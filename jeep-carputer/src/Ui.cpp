@@ -1,5 +1,7 @@
 #include "Ui.h"
 
+#include "Settings.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -82,6 +84,18 @@ static const char* TAG = "ui";
 #define UI_PAGE_Y (UI_STATUSBAR_H)
 #define UI_PAGE_H (LCD_V_RES - UI_STATUSBAR_H)
 
+// Info-block geometry, shared by the builder and the refresh because the
+// values are right-aligned: lv_obj_align() is a one-shot position, so every
+// text change has to re-align, and two copies of these numbers would drift.
+//
+// The floor is not arbitrary. The page dots live on the root at screen
+// y = LCD_V_RES - 16, which is page-local 278 once UI_STATUSBAR_H is taken
+// off, so the last row has to finish above that.
+#define UI_SET_INFO_RULE  192
+#define UI_SET_INFO_CAP   198
+#define UI_SET_INFO_ROW0  216
+#define UI_SET_INFO_STEP  21
+
 static VehicleState* s_state = nullptr;
 static const BroadcastState* s_bcast = nullptr;
 static const TripSet* s_trips = nullptr;
@@ -96,7 +110,23 @@ static lv_obj_t* s_page[UI_SCREEN_COUNT];
 static lv_obj_t* s_dot[UI_SCREEN_COUNT];
 static lv_obj_t* s_splash = nullptr;
 static uint8_t s_current = UI_HOME;
+
+// SETTINGS info block. Copied rather than pointed at, because carTask builds
+// these on its stack.
+static char s_linkMode[12] = "DOWN";
+static char s_linkAdapter[12] = "--";
 static bool s_splashDone = false;
+
+// Defined down with buildRoot(), because it needs it; used up in uiTask.
+static void uiApplyTheme(uint8_t theme);
+
+// A theme change requested from a tap, applied by uiTask.
+//
+// NOT applied in the event callback. The row that was tapped lives inside
+// s_root, and applying a theme deletes s_root -- deleting the object that is
+// currently dispatching an event is how LVGL is made to crash. 0xFF is "no
+// request pending".
+static volatile uint8_t s_themeReq = 0xFFu;
 
 // Cached VehicleState slot indices, resolved once at init. -1 means the signal
 // is not in the poll plan, which is a normal condition, not an error.
@@ -134,6 +164,10 @@ static struct {
   lv_obj_t* tripMoving;
   lv_obj_t* tripAvgKph;
   lv_obj_t* tripHint;
+  lv_obj_t* setInvertState;
+  lv_obj_t* setLink;
+  lv_obj_t* setAdapter;
+  lv_obj_t* setBus;
 } W;
 
 // ---------------------------------------------------------------------------
@@ -261,6 +295,30 @@ static lv_obj_t* buildHeader(lv_obj_t* page, const char* title, const char* note
 }
 
 // A two-up row of value cells, the pattern DRIVE and TRIP both use.
+// A unit caption, pinned to the RIGHT EDGE OF ITS COLUMN rather than to a
+// fixed offset from the value.
+//
+// Fixed offsets are what put "L/100" and "km/h" half off the panel: the unit
+// was placed 76 px after the column start, which leaves 32 px, and "L/100" in
+// the label face needs more than that. Right-aligning inside a box that ENDS at
+// the column edge cannot overflow whatever the string or the font.
+//
+// It is still a one-shot placement -- the box does not move when the number
+// changes, so there is no per-refresh realign and no layout work in the render
+// path. The units simply line up in a column, which reads tidier than chasing
+// a value whose width changes with every digit.
+#define UI_UNIT_BOX 62
+
+static void mkUnit(lv_obj_t* page, const char* text, lv_coord_t colRight,
+                   lv_coord_t y) {
+  lv_obj_t* u = mkLabel(page, text, UI_FONT_LABEL, UI_LABEL, 0, 0);
+  lv_obj_set_width(u, UI_UNIT_BOX);
+  lv_obj_set_style_text_align(u, LV_TEXT_ALIGN_RIGHT, 0);
+  // The box may overlap the value's box; only the rendered glyphs matter, and
+  // right-aligned text sits at the far end of it.
+  lv_obj_set_pos(u, static_cast<lv_coord_t>(colRight - UI_UNIT_BOX), y);
+}
+
 static void buildPair(lv_obj_t* page, lv_coord_t y, const char* capL, const char* capR,
                       lv_obj_t** outL, lv_obj_t** outR, const char* unitL,
                       const char* unitR) {
@@ -271,10 +329,10 @@ static void buildPair(lv_obj_t* page, lv_coord_t y, const char* capL, const char
   *outR = mkLabel(page, "--", UI_FONT_MID, UI_PRIMARY, LCD_H_RES / 2 + UI_PAD - 2,
                   y + 20);
   if (unitL != nullptr) {
-    mkLabel(page, unitL, UI_FONT_LABEL, UI_LABEL, UI_PAD + 76, y + 32);
+    mkUnit(page, unitL, LCD_H_RES / 2 - (UI_PAD - 2), y + 32);
   }
   if (unitR != nullptr) {
-    mkLabel(page, unitR, UI_FONT_LABEL, UI_LABEL, LCD_H_RES / 2 + UI_PAD + 76, y + 32);
+    mkUnit(page, unitR, LCD_H_RES - (UI_PAD - 2), y + 32);
   }
 }
 
@@ -362,6 +420,131 @@ static void buildTyres(lv_obj_t* page) {
   lv_obj_align(W.tyreTarget, LV_ALIGN_TOP_RIGHT, -(UI_PAD - 2), 250);
   lv_obj_add_flag(W.tyreLow, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(W.tyreTarget, LV_OBJ_FLAG_HIDDEN);
+}
+
+// One tappable settings row: name, an explanatory sub-line, and its state on
+// the right. Returns the state label so the caller can keep it in sync.
+//
+// CLICKABLE but NOT SCROLLABLE, which is the distinction that matters inside
+// the swipe scroller. LVGL walks up from the pressed object looking for a
+// scrollable ancestor, so a clickable child still lets a drag scroll the pages
+// underneath it -- it is a child that is itself scrollable that swallows the
+// drag, which is what once made swiping work only on bare background.
+static lv_obj_t* mkSettingRow(lv_obj_t* page, lv_coord_t y, const char* name,
+                              const char* detail, const char* state,
+                              lv_event_cb_t cb) {
+  lv_obj_t* row = lv_obj_create(page);
+  stripChrome(row);
+  lv_obj_set_size(row, LCD_H_RES, 44);
+  lv_obj_set_pos(row, 0, y);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  if (cb != nullptr) {
+    lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, nullptr);
+  }
+
+  mkLabel(row, name, UI_FONT_LABEL, UI_PRIMARY, UI_PAD - 2, 4);
+  mkLabel(row, detail, UI_FONT_LABEL, UI_FAINT, UI_PAD - 2, 23);
+
+  lv_obj_t* st = mkLabel(row, state, UI_FONT_LABEL, UI_DIM, 0, 0);
+  lv_obj_align(st, LV_ALIGN_TOP_RIGHT, -(UI_PAD - 2), 10);
+
+  mkRule(page, static_cast<lv_coord_t>(y + 44), 0, LCD_H_RES);
+  return st;
+}
+
+// A read-only diagnostic line for the info block.
+static lv_obj_t* mkInfoRow(lv_obj_t* page, lv_coord_t y, const char* name) {
+  mkCaption(page, name, UI_PAD - 2, y);
+  lv_obj_t* v = mkLabel(page, "--", UI_FONT_LABEL, UI_DIM, 0, 0);
+  lv_obj_align(v, LV_ALIGN_TOP_RIGHT, -(UI_PAD - 2), static_cast<lv_coord_t>(y - 3));
+  return v;
+}
+
+static void onThemeTap(lv_event_t* e) {
+  (void)e;
+  const uint8_t next = (uint8_t)((uiThemeGet() + 1u) % UI_THEME_COUNT);
+  (void)settingsSetTheme(next);
+  // Requested, not applied: see s_themeReq. Applying here would delete the
+  // object currently dispatching this very event.
+  s_themeReq = next;
+}
+
+// The one page a driver reads while stopped, so it sits last in the swipe
+// order: no driving screen is ever behind it, and it costs nothing to be the
+// furthest from where the boot settles.
+static void buildSettings(lv_obj_t* page) {
+  buildHeader(page, "SETTINGS", nullptr);
+
+  mkRule(page, 24, 0, LCD_H_RES);
+
+  // Cycles NIGHT -> DAY TEAL -> DAY MINT -> NIGHT. A cycle rather than a
+  // toggle because there are three, and three radio rows would cost the page
+  // its room to grow for one setting nobody changes twice a week.
+  W.setInvertState = mkSettingRow(page, 30, "PALETTE", "tap to cycle",
+                                  kUiThemeName[uiThemeGet()], onThemeTap);
+  lv_obj_set_style_text_color(W.setInvertState, UI_PRIMARY, 0);
+
+  // The info block is READ ONLY, deliberately. A settings page that can break
+  // the link is a settings page that will, and the link is the entire device.
+  mkRule(page, UI_SET_INFO_RULE, 0, LCD_H_RES);
+  mkCaption(page, "LINK", UI_PAD - 2, UI_SET_INFO_CAP);
+
+  W.setLink = mkInfoRow(page, UI_SET_INFO_ROW0, "MODE");
+  W.setAdapter = mkInfoRow(page, UI_SET_INFO_ROW0 + UI_SET_INFO_STEP, "ADAPTER");
+  W.setBus = mkInfoRow(page, UI_SET_INFO_ROW0 + 2 * UI_SET_INFO_STEP, "BUS");
+}
+
+// Defined further down with the other value-setters; used here because the
+// settings page is built alongside its peers rather than after them.
+static void setColourIfChanged(lv_obj_t* lbl, lv_color_t c);
+
+// Right-aligned text that only repaints when it changed.
+//
+// lv_label_set_text() invalidates unconditionally, so setting the same string
+// every refresh would keep three labels redrawing at 10 Hz for nothing -- and
+// the re-align afterwards is only needed because the width may have changed.
+static void setInfoText(lv_obj_t* lbl, const char* txt, lv_coord_t y) {
+  if (lbl == nullptr) {
+    return;
+  }
+  const char* cur = lv_label_get_text(lbl);
+  if (cur != nullptr && strcmp(cur, txt) == 0) {
+    return;
+  }
+  lv_label_set_text(lbl, txt);
+  lv_obj_align(lbl, LV_ALIGN_TOP_RIGHT, -(UI_PAD - 2), y);
+}
+
+// The info block. Cheap enough to run every cycle, but the bus rate needs a
+// window: frames is a free-running total, so it is differenced against the
+// previous sample rather than divided by uptime, which would average away
+// exactly the drop we would be looking for.
+static void refreshSettings(uint32_t now) {
+  if (W.setLink == nullptr) {
+    return;
+  }
+  setInfoText(W.setLink, s_linkMode, UI_SET_INFO_ROW0 - 3);
+  setColourIfChanged(W.setLink,
+                     (strcmp(s_linkMode, "DOWN") == 0) ? UI_CRIT : UI_PRIMARY);
+
+  setInfoText(W.setAdapter, s_linkAdapter, UI_SET_INFO_ROW0 + UI_SET_INFO_STEP - 3);
+
+  static uint32_t lastMs = 0u;
+  static uint32_t lastFrames = 0u;
+  if (s_bcast != nullptr) {
+    if (lastMs == 0u) {
+      lastMs = now;
+      lastFrames = s_bcast->frames;
+    } else if (now - lastMs >= 2000u) {
+      const uint32_t d = s_bcast->frames - lastFrames;
+      const uint32_t ms = now - lastMs;
+      lastMs = now;
+      lastFrames = s_bcast->frames;
+      char buf[16];
+      snprintf(buf, sizeof(buf), "%u f/s", (unsigned)((d * 1000u) / (ms ? ms : 1u)));
+      setInfoText(W.setBus, buf, UI_SET_INFO_ROW0 + 2 * UI_SET_INFO_STEP - 3);
+    }
+  }
 }
 
 static void buildHealth(lv_obj_t* page) {
@@ -1109,6 +1292,7 @@ static void refresh(uint32_t now) {
   }
   setValScaled(W.spare, s_slot.spare, 2, now, UI_PSI_TO_BAR, 60000u, UI_DIM, UI_FAINT);
   refreshTyreWarning();
+  refreshSettings(now);
   refreshConfirm();
 
   // Uptime stands in for a clock until the RTC is wired.
@@ -1132,6 +1316,16 @@ static void uiTask(void*) {
     uint32_t span = 0u, cycles = 0u, rends = 0u, us = 0u;
 
     if (lvgl_port_lock(100)) {
+      // Applied here rather than in the tap handler: rebuilding deletes the
+      // object that was tapped, and LVGL will not survive that happening
+      // inside its own event dispatch.
+      const uint8_t req = s_themeReq;
+      if (req != 0xFFu) {
+        s_themeReq = 0xFFu;
+        if (s_splashDone) {
+          uiApplyTheme(req);
+        }
+      }
       if (s_splashDone) {
         refresh(now);
         static uint32_t lastDiag = 0u;
@@ -1218,6 +1412,15 @@ void uiSetTrips(const TripSet* trips, void (*resetFn)(uint8_t)) {
   s_tripReset = resetFn;
 }
 
+void uiSetLinkInfo(const char* mode, const char* adapter) {
+  if (mode != nullptr) {
+    snprintf(s_linkMode, sizeof(s_linkMode), "%s", mode);
+  }
+  if (adapter != nullptr) {
+    snprintf(s_linkAdapter, sizeof(s_linkAdapter), "%s", adapter);
+  }
+}
+
 void uiLinkReady(bool ok) {
   if (!lvgl_port_lock(200)) {
     return;
@@ -1240,6 +1443,125 @@ void uiSplash(uint32_t holdMs) {
 }
 
 // ---------------------------------------------------------------------------
+
+// Everything that lives on the root screen, built from the ACTIVE palette.
+//
+// A widget's colour is baked in when it is created, so a theme change cannot
+// repaint what already exists -- it has to be built again. Extracted here so
+// uiApplyTheme() can do exactly that without duplicating a line of layout.
+static void buildRoot(void) {
+  memset(&W, 0, sizeof(W));
+  s_confirm = nullptr;
+  s_confirmStart = 0u;
+
+  s_root = mkScreen();
+
+  // The scroller: a flex row of full-width pages with centre snapping, so a
+  // drag moves the pages under the finger and release settles on the nearest.
+  s_pages = lv_obj_create(s_root);
+  stripChrome(s_pages);
+  lv_obj_set_size(s_pages, LCD_H_RES, UI_PAGE_H);
+  lv_obj_set_pos(s_pages, 0, UI_PAGE_Y);
+  lv_obj_set_flex_flow(s_pages, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(s_pages, 0, 0);
+  // CLICKABLE as well as SCROLLABLE, and the pages below are clickable too.
+  // LVGL hit-tests for a clickable object to decide what was pressed, then
+  // walks UP that object's parents to find something scrollable. Strip
+  // clickability from everything and there is no press target at all, so the
+  // scroller never learns a finger is on it -- the drag simply vanishes.
+  lv_obj_add_flag(s_pages, static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_SCROLLABLE |
+                                                      LV_OBJ_FLAG_CLICKABLE));
+  lv_obj_set_scroll_dir(s_pages, LV_DIR_HOR);
+  lv_obj_set_scroll_snap_x(s_pages, LV_SCROLL_SNAP_CENTER);
+  lv_obj_set_scrollbar_mode(s_pages, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_add_event_cb(s_pages, onScrollBegin, LV_EVENT_SCROLL_BEGIN, nullptr);
+  lv_obj_add_event_cb(s_pages, onScrollEnd, LV_EVENT_SCROLL_END, nullptr);
+
+  for (uint8_t i = 0; i < UI_SCREEN_COUNT; ++i) {
+    s_page[i] = lv_obj_create(s_pages);
+    stripChrome(s_page[i]);
+    // OPAQUE, not transparent.
+    //
+    // stripChrome() leaves objects transparent, which is right for a 1 px rule
+    // but wrong for a full-screen page: LVGL then has to paint the root and the
+    // scroller underneath and blend the page over both, every frame. A scroll
+    // dirties the whole screen, so that overdraw lands on exactly the frames
+    // that can least afford it. An opaque page lets the renderer skip whatever
+    // is behind it.
+    lv_obj_set_style_bg_color(s_page[i], UI_BG, 0);
+    lv_obj_set_style_bg_opa(s_page[i], LV_OPA_COVER, 0);
+    lv_obj_set_size(s_page[i], LCD_H_RES, UI_PAGE_H);
+    // The press target. Decorations stay non-clickable so they fall through to
+    // here, and from here LVGL finds the scroller one level up.
+    lv_obj_add_flag(s_page[i], LV_OBJ_FLAG_CLICKABLE);
+  }
+  buildTrip(s_page[UI_TRIP]);
+  buildDrive(s_page[UI_DRIVE]);
+  buildTyres(s_page[UI_TYRES]);
+  buildHealth(s_page[UI_HEALTH]);
+  buildSettings(s_page[UI_SETTINGS]);
+
+  // Chrome last, so it paints over the pages sliding beneath it.
+  buildStatusBar(s_root);
+  buildDots(s_root);
+  buildConfirm(s_root);   // last of all: nothing may paint over a dialog
+}
+
+// Swap the palette and rebuild the screen around it.
+//
+// PEAK memory is what matters here, not total. LVGL has a FIXED 64 KB pool
+// (CONFIG_LV_MEM_SIZE_KILOBYTES, with CONFIG_LV_MEM_POOL_EXPAND_SIZE 0) and one
+// screen's worth of widgets is a large fraction of it. An earlier version of
+// this function built the replacement BEFORE freeing the original, so both
+// existed at once; the allocation failed inside lv_label_set_text(), and with
+// CONFIG_LV_USE_ASSERT_MALLOC on, LVGL's assert handler is a bare while(1).
+// The UI task span, IDLE starved, and the task watchdog fired every five
+// seconds forever. The screen simply froze.
+//
+// So: FREE first, BUILD second. LVGL must always have an active screen, so a
+// bare one stands in for the moment in between -- one object, painted in the
+// NEW background colour so the swap flashes the destination rather than the
+// thing being replaced.
+static void uiApplyTheme(uint8_t theme) {
+  const uint8_t page = s_current;
+  const uint8_t trip = s_tripShown;
+  lv_obj_t* old = s_root;
+
+  uiThemeSet(theme);
+
+  lv_obj_t* gap = lv_obj_create(nullptr);
+  stripChrome(gap);
+  lv_obj_set_style_bg_color(gap, UI_BG, 0);
+  lv_obj_set_style_bg_opa(gap, LV_OPA_COVER, 0);
+  lv_screen_load(gap);
+
+  if (old != nullptr) {
+    lv_obj_delete(old);       // the whole previous tree, before a byte of the new
+    s_root = nullptr;
+  }
+
+  buildRoot();
+
+  lv_obj_update_layout(s_root);
+  lv_obj_scroll_to_x(s_pages, page * LCD_H_RES, LV_ANIM_OFF);
+  s_current = page;
+  s_tripShown = trip;
+  setTripTitle();
+  setActiveDot(page);
+
+  lv_screen_load(s_root);
+  lv_obj_delete(gap);
+
+  // Headroom, every time. 64 KB is not a lot for five pages of widgets, and
+  // the failure mode above is a silent freeze rather than an error -- so the
+  // number that predicts it belongs in the log where it can be seen coming.
+  lv_mem_monitor_t m;
+  lv_mem_monitor(&m);
+  ESP_LOGI(TAG, "theme -> %s  lvgl heap %u/%u used  frag %u%%  largest free %u",
+           kUiThemeName[theme],
+           (unsigned)(m.total_size - m.free_size), (unsigned)m.total_size,
+           (unsigned)m.frag_pct, (unsigned)m.free_biggest_size);
+}
 
 esp_err_t uiInit(VehicleState* state) {
   s_state = state;
@@ -1307,56 +1629,7 @@ esp_err_t uiInit(VehicleState* state) {
     return ESP_FAIL;
   }
 
-  s_root = mkScreen();
-
-  // The scroller: a flex row of full-width pages with centre snapping, so a
-  // drag moves the pages under the finger and release settles on the nearest.
-  s_pages = lv_obj_create(s_root);
-  stripChrome(s_pages);
-  lv_obj_set_size(s_pages, LCD_H_RES, UI_PAGE_H);
-  lv_obj_set_pos(s_pages, 0, UI_PAGE_Y);
-  lv_obj_set_flex_flow(s_pages, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(s_pages, 0, 0);
-  // CLICKABLE as well as SCROLLABLE, and the pages below are clickable too.
-  // LVGL hit-tests for a clickable object to decide what was pressed, then
-  // walks UP that object's parents to find something scrollable. Strip
-  // clickability from everything and there is no press target at all, so the
-  // scroller never learns a finger is on it -- the drag simply vanishes.
-  lv_obj_add_flag(s_pages, static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_SCROLLABLE |
-                                                      LV_OBJ_FLAG_CLICKABLE));
-  lv_obj_set_scroll_dir(s_pages, LV_DIR_HOR);
-  lv_obj_set_scroll_snap_x(s_pages, LV_SCROLL_SNAP_CENTER);
-  lv_obj_set_scrollbar_mode(s_pages, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_add_event_cb(s_pages, onScrollBegin, LV_EVENT_SCROLL_BEGIN, nullptr);
-  lv_obj_add_event_cb(s_pages, onScrollEnd, LV_EVENT_SCROLL_END, nullptr);
-
-  for (uint8_t i = 0; i < UI_SCREEN_COUNT; ++i) {
-    s_page[i] = lv_obj_create(s_pages);
-    stripChrome(s_page[i]);
-    // OPAQUE, not transparent.
-    //
-    // stripChrome() leaves objects transparent, which is right for a 1 px rule
-    // but wrong for a full-screen page: LVGL then has to paint the root and the
-    // scroller underneath and blend the page over both, every frame. A scroll
-    // dirties the whole screen, so that overdraw lands on exactly the frames
-    // that can least afford it. An opaque page lets the renderer skip whatever
-    // is behind it.
-    lv_obj_set_style_bg_color(s_page[i], UI_BG, 0);
-    lv_obj_set_style_bg_opa(s_page[i], LV_OPA_COVER, 0);
-    lv_obj_set_size(s_page[i], LCD_H_RES, UI_PAGE_H);
-    // The press target. Decorations stay non-clickable so they fall through to
-    // here, and from here LVGL finds the scroller one level up.
-    lv_obj_add_flag(s_page[i], LV_OBJ_FLAG_CLICKABLE);
-  }
-  buildTrip(s_page[UI_TRIP]);
-  buildDrive(s_page[UI_DRIVE]);
-  buildTyres(s_page[UI_TYRES]);
-  buildHealth(s_page[UI_HEALTH]);
-
-  // Chrome last, so it paints over the pages sliding beneath it.
-  buildStatusBar(s_root);
-  buildDots(s_root);
-  buildConfirm(s_root);   // last of all: nothing may paint over a dialog
+  buildRoot();
 
   lv_display_add_event_cb(s_disp, onRefrStart, LV_EVENT_REFR_START, nullptr);
   lv_display_add_event_cb(s_disp, onRenderReady, LV_EVENT_RENDER_READY, nullptr);

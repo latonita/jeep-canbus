@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "LinkLine.h"
+
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -10,9 +12,16 @@
 
 static const char* TAG = "at328";
 
-// Generous enough that a burst of monitor traffic cannot overrun us between
-// reads, small enough to be irrelevant on a part with this much RAM.
-#define AT328_RX_BUF 1024
+// 4096 is about 1.6 s of cover at the measured 2.5 kB/s of stream traffic
+// (151 frames/s, mean line 16.7 bytes with ATS0).
+//
+// It is sized for OUR stalls, not for bus bursts -- chiefly an NVS commit,
+// which disables the flash cache for tens of milliseconds. And it is what
+// keeps backpressure off the gateway: the 328 has no frame queue at all and
+// its Serial.write() busy-waits, so if we stop draining, its main loop stalls,
+// the MCP2515's two receive buffers overflow, and frames are lost on the car
+// side where no counter will ever show it.
+#define AT328_RX_BUF 4096
 
 namespace {
 
@@ -37,7 +46,14 @@ At328Link::At328Link(uart_port_t port, int txPin, int rxPin, uint32_t baud)
       reqId_(0u),
       respId_(0u),
       targetValid_(false),
-      ready_(false) {}
+      lastRxMs_(0u),
+      ready_(false),
+      monitoring_(false),
+      streaming_(false),
+      sink_(nullptr),
+      frameQ_(nullptr),
+      replyQ_(nullptr),
+      reader_(nullptr) {}
 
 uint32_t At328Link::nowMs() {
   return static_cast<uint32_t>(esp_timer_get_time() / 1000);
@@ -104,39 +120,122 @@ LinkStatus At328Link::readLine(char* out, uint16_t cap, uint16_t& len,
   }
 }
 
+// ---------------------------------------------------------------------------
+// The reader task.
+//
+// Exactly one task ever reads the UART. It classifies each line and routes it:
+// a frame carrying the id we are currently waiting on goes to frameQ_ for
+// whoever called readFrame(); every other frame is a broadcast and goes
+// straight to the sink; anything that is not a frame is a command reply and
+// goes to replyQ_.
+//
+// That split is what makes requests and broadcasts able to overlap. With the
+// 2.1 adapter's AT@SM stream the two genuinely arrive interleaved, and the old
+// alternation -- listen for a window, go deaf, spend a few requests -- is gone.
+// ---------------------------------------------------------------------------
+
+void At328Link::readerTrampoline(void* self) {
+  static_cast<At328Link*>(self)->readerLoop();
+}
+
+void At328Link::readerLoop() {
+  char line[AT328_LINE_MAX];
+
+  for (;;) {
+    uint16_t len = 0u;
+    bool prompt = false;
+
+    // A one-second deadline rather than an infinite block: readLine() is
+    // written around a deadline, and coming back round an idle loop costs
+    // nothing.
+    // ONLY on LINK_OK. A deadline reached mid-line leaves a partial in the
+    // buffer, and classifying that would turn one truncated frame into a
+    // plausible-looking shorter one.
+    if (readLine(line, sizeof(line), len, prompt, nowMs() + 1000u) != LINK_OK) {
+      continue;
+    }
+
+    // Stamped for every complete line, whatever it turns out to be. An adapter
+    // that is answering at all is an adapter that is still there.
+    lastRxMs_ = nowMs();
+
+    if (len != 0u) {
+      if (linkClassifyLine(line, len) == LINK_LINE_FRAME) {
+        CanFrame f;
+        if (parseFrameLine(line, len, f)) {
+          // targetValid_ is false whenever no request is addressed, so in the
+          // ATMA fallback every frame reaches the sink exactly as before.
+          // Broadcast ids (0x000..0x210) never collide with a response id
+          // (0x500..0x516), so nothing is ever misrouted.
+          if (targetValid_ && f.id == respId_) {
+            // Never block. A response nobody is waiting for must not stall the
+            // reader, because every broadcast behind it would stall too.
+            (void)xQueueSend(frameQ_, &f, 0);
+          } else if (sink_ != nullptr) {
+            sink_(f, nowMs());
+          }
+        }
+      } else {
+        At328Reply r;
+        strncpy(r.text, line, sizeof(r.text) - 1u);
+        r.text[sizeof(r.text) - 1u] = '\0';
+        r.prompt = false;
+        (void)xQueueSend(replyQ_, &r, 0);
+      }
+    }
+
+    if (prompt) {
+      At328Reply r;
+      r.text[0] = '\0';
+      r.prompt = true;
+      (void)xQueueSend(replyQ_, &r, 0);
+    }
+  }
+}
+
 LinkStatus At328Link::command(const char* cmd, uint32_t timeoutMs) {
   if (cmd == nullptr) {
     return LINK_BAD_PARAM;
   }
+  if (replyQ_ == nullptr) {
+    return LINK_NOT_READY;
+  }
+
+  // Was a uart_flush_input(): with the reader task owning the port, stale
+  // lines are discarded here instead. Frames are unaffected -- they never
+  // reach this queue.
+  xQueueReset(replyQ_);
   writeLine(cmd);
 
   const uint32_t deadline = nowMs() + timeoutMs;
-  char line[AT328_LINE_MAX];
-  uint16_t len = 0u;
-  bool prompt = false;
 
   // Bounded: a wedged adapter must not spin here even if it keeps emitting.
-  for (uint8_t i = 0u; i < 8u; ++i) {
-    const LinkStatus st = readLine(line, sizeof(line), len, prompt, deadline);
-    if (st != LINK_OK) {
+  // Raised from 8 to 16 because AT@EV event lines can now arrive in between.
+  for (uint8_t i = 0u; i < 16u; ++i) {
+    const uint32_t now = nowMs();
+    if (static_cast<int32_t>(deadline - now) <= 0) {
       return LINK_TIMEOUT;
     }
-    if (prompt) {
+    At328Reply r;
+    if (xQueueReceive(replyQ_, &r, pdMS_TO_TICKS(deadline - now)) != pdTRUE) {
+      return LINK_TIMEOUT;
+    }
+    if (r.prompt) {
       // Prompt with no OK seen. ATZ answers with its identity and then a
       // prompt, so treat reaching the prompt as success for those commands.
       return LINK_OK;
     }
-    if (sameText(line, "OK")) {
+    if (sameText(r.text, "OK")) {
       return LINK_OK;
     }
-    if (sameText(line, "?")) {
+    if (sameText(r.text, "?")) {
       ESP_LOGW(TAG, "adapter rejected: %s", cmd);
       return LINK_PROTOCOL;
     }
-    if (sameText(line, "CAN ERROR")) {
+    if (sameText(r.text, "CAN ERROR")) {
       return LINK_CAN_ERROR;
     }
-    if (sameText(line, "BUFFER FULL")) {
+    if (sameText(r.text, "BUFFER FULL")) {
       return LINK_OVERFLOW;
     }
     // Anything else (an identity string, a status line) is informational.
@@ -148,6 +247,10 @@ LinkStatus At328Link::begin() {
   ready_ = false;
   targetValid_ = false;
   monitoring_ = false;
+  // Cleared here, not just set below: a retry after a failed begin() must not
+  // inherit the previous adapter's answer. Swapping a 2.1 board for a 2.0 one
+  // would otherwise leave us streaming against a device that never started.
+  streaming_ = false;
 
   uart_config_t cfg = {};
   cfg.baud_rate = static_cast<int>(baud_);
@@ -173,9 +276,36 @@ LinkStatus At328Link::begin() {
   // The 328 is not reset by us opening the port -- it is flashed over ICSP and
   // has no bootloader on these pins -- so it may be mid-line from a previous
   // session. A bare CR closes whatever was half-typed.
+  //
+  // It may also still be STREAMING from before an ESP32 reset, in which case
+  // frames are arriving right now. That is harmless: the reader routes them to
+  // the sink, and command() waits on a queue frames never reach.
   writeLine("");
   vTaskDelay(pdMS_TO_TICKS(50));
-  drain();
+
+  if (reader_ == nullptr) {
+    // Discard the ROM bootloader noise BEFORE the reader starts, so it never
+    // sees it. On a retry the reader is already draining and this is skipped.
+    drain();
+
+    frameQ_ = xQueueCreate(AT328_FRAME_Q_DEPTH, sizeof(CanFrame));
+    replyQ_ = xQueueCreate(AT328_REPLY_Q_DEPTH, sizeof(At328Reply));
+    if (frameQ_ == nullptr || replyQ_ == nullptr) {
+      ESP_LOGE(TAG, "queue allocation failed");
+      return LINK_NOT_READY;
+    }
+    // Core 0 beside carTask, one priority above it: the reader must win, or a
+    // poll waiting on a response could hold off the frames that answer it.
+    if (xTaskCreatePinnedToCore(readerTrampoline, "at328rx", 3072, this, 6,
+                                &reader_, 0) != pdPASS) {
+      reader_ = nullptr;
+      ESP_LOGE(TAG, "reader task creation failed");
+      return LINK_NOT_READY;
+    }
+  } else {
+    xQueueReset(replyQ_);
+    xQueueReset(frameQ_);
+  }
 
   // ATZ resets the AT layer only; it deliberately does not re-initialise the
   // adapter's CAN controller, so this cannot disturb the car's VES announce.
@@ -201,9 +331,19 @@ LinkStatus At328Link::begin() {
   }
 
   ready_ = true;
+
+  // Ask for the background frame stream. A 2.0 adapter has never heard of
+  // AT@SM and answers '?', which is NOT an error -- it means fall back to the
+  // ATMA alternation. Probing rather than assuming is what lets the two
+  // firmwares be flashed on separate trips to the radio.
+  streaming_ = (command("AT@SM1", AT328_CMD_TIMEOUT_MS) == LINK_OK);
+
   ESP_LOGI(TAG, "adapter ready on UART%d tx=%d rx=%d @%u",
            static_cast<int>(port_), txPin_, rxPin_,
            static_cast<unsigned>(baud_));
+  ESP_LOGI(TAG, "%s", streaming_
+      ? "AT@SM1 accepted: streaming, requests and broadcasts overlap"
+      : "no AT@SM (adapter older than 2.1): falling back to ATMA windows");
   return LINK_OK;
 }
 
@@ -261,7 +401,12 @@ LinkStatus At328Link::sendFrame(const CanFrame& frame) {
   }
   line[n] = '\0';
 
-  drain();          // discard anything left from a previous transaction
+  // Discard any late response left over from a transaction that already timed
+  // out, so it cannot be mis-attributed to this one. This replaces the
+  // uart_flush_input() that used to do the job -- flushing the port would now
+  // throw away broadcasts too, and the reader may already have parsed them.
+  xQueueReset(frameQ_);
+
   writeLine(line);
   return LINK_OK;
 }
@@ -303,41 +448,20 @@ bool At328Link::parseFrameLine(const char* line, uint16_t len, CanFrame& out) {
 }
 
 LinkStatus At328Link::readFrame(CanFrame& out, uint32_t timeoutMs) {
-  if (!ready_) {
+  if (!ready_ || frameQ_ == nullptr) {
     return LINK_NOT_READY;
   }
-  const uint32_t deadline = nowMs() + timeoutMs;
-  char line[AT328_LINE_MAX];
-  uint16_t len = 0u;
-  bool prompt = false;
-
-  // Bounded: an adapter in ATMA mode would otherwise stream forever.
-  for (uint8_t i = 0u; i < 32u; ++i) {
-    const LinkStatus st = readLine(line, sizeof(line), len, prompt, deadline);
-    if (st != LINK_OK) {
-      return LINK_NO_DATA;
-    }
-    if (prompt) {
-      return LINK_NO_DATA;   // the adapter is done with this transaction
-    }
-    if (sameText(line, "NO DATA")) {
-      return LINK_NO_DATA;
-    }
-    if (sameText(line, "CAN ERROR")) {
-      return LINK_CAN_ERROR;
-    }
-    if (sameText(line, "BUFFER FULL")) {
-      return LINK_OVERFLOW;
-    }
-    if (sameText(line, "OK") || sameText(line, "?")) {
-      continue;              // leftover reply from a previous command
-    }
-    if (parseFrameLine(line, len, out)) {
-      return LINK_OK;
-    }
-    ESP_LOGD(TAG, "unparsed line: '%s'", line);
+  // The reader task has already parsed the line and decided this frame carries
+  // the id we asked about, so there is nothing left to do but wait for it.
+  //
+  // CAN ERROR and BUFFER FULL are no longer seen here -- they are command
+  // replies and go to replyQ_. A transaction that hits one now times out
+  // instead of being told why, which is a fair trade for never having a
+  // broadcast and a response compete for the same read.
+  if (xQueueReceive(frameQ_, &out, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    return LINK_OK;
   }
-  return LINK_PROTOCOL;
+  return LINK_NO_DATA;
 }
 
 // ATMA streams every frame until ANY character reaches the adapter. The filter
@@ -346,6 +470,11 @@ LinkStatus At328Link::readFrame(CanFrame& out, uint32_t timeoutMs) {
 LinkStatus At328Link::monitorBegin() {
   if (!ready_) {
     return LINK_NOT_READY;
+  }
+  if (streaming_) {
+    // Nothing to begin: with AT@SM the frames are already arriving, and ATMA
+    // would only make the adapter deaf to the requests we still want to send.
+    return LINK_OK;
   }
   if (monitoring_) {
     return LINK_OK;
@@ -358,12 +487,14 @@ LinkStatus At328Link::monitorBegin() {
   writeLine("ATMA");
   monitoring_ = true;
   // The filter is gone, so the next request must reprogram its addressing.
+  // It also means the reader sees no id matching respId_, so every frame in
+  // the window goes to the sink -- which is exactly what the window is for.
   targetValid_ = false;
   return LINK_OK;
 }
 
 LinkStatus At328Link::monitorEnd() {
-  if (!monitoring_) {
+  if (streaming_ || !monitoring_) {
     return LINK_OK;
   }
   // Any character stops the stream; the adapter consumes it rather than
@@ -371,27 +502,18 @@ LinkStatus At328Link::monitorEnd() {
   writeLine("");
   monitoring_ = false;
 
-  // Drain until the line goes QUIET, not merely until a prompt appears.
+  // At 83 kbps there is a long tail of already-transmitted frames in flight
+  // after the stop character. Left in the buffer, the next command reads them
+  // as its own reply and the adapter answers "?" -- that is what produced
+  // "adapter rejected: ATSH600" on the first request after every window.
   //
-  // At 83 kbps there can be a long tail of already-transmitted frames in
-  // flight, and reading a fixed number of lines leaves the rest of them sitting
-  // in the buffer -- where the next command reads them as its own reply and
-  // the adapter answers "?". That is what produced "adapter rejected: ATSH600"
-  // on the first request after every monitor window.
-  const uint32_t giveUp = nowMs() + 400u;
-  uint32_t lastByte = nowMs();
-  uint8_t byte = 0u;
-  while (nowMs() < giveUp) {
-    int n = uart_read_bytes(port_, &byte, 1, pdMS_TO_TICKS(10));
-    if (n > 0) {
-      lastByte = nowMs();
-      continue;
-    }
-    if ((nowMs() - lastByte) >= 40u) {
-      break;              // 40 ms of silence: the stream has genuinely stopped
-    }
-  }
-  drain();
+  // This used to drain the port here until it went quiet. It cannot any more:
+  // the reader task owns the port and we would be racing it for bytes. So give
+  // the reader time to absorb the tail into the sink where it belongs, then
+  // discard whatever it classified as replies. 120 ms is generous -- the 328's
+  // TX ring is 128 bytes, about 11 ms of backlog at 115200.
+  vTaskDelay(pdMS_TO_TICKS(120));
+  xQueueReset(replyQ_);
   return LINK_OK;
 }
 
@@ -400,28 +522,31 @@ LinkStatus At328Link::status(char* out, uint16_t cap) {
     return LINK_BAD_PARAM;
   }
   out[0] = '\0';
-  if (!ready_) {
+  if (!ready_ || replyQ_ == nullptr) {
     return LINK_NOT_READY;
   }
 
+  xQueueReset(replyQ_);
   writeLine("AT@ST");
   const uint32_t deadline = nowMs() + AT328_CMD_TIMEOUT_MS;
-  char line[AT328_LINE_MAX];
-  uint16_t len = 0u;
-  bool prompt = false;
 
-  for (uint8_t i = 0u; i < 8u; ++i) {
-    if (readLine(line, sizeof(line), len, prompt, deadline) != LINK_OK) {
+  for (uint8_t i = 0u; i < 16u; ++i) {
+    const uint32_t now = nowMs();
+    if (static_cast<int32_t>(deadline - now) <= 0) {
       return LINK_TIMEOUT;
     }
-    if (prompt) {
+    At328Reply r;
+    if (xQueueReceive(replyQ_, &r, pdMS_TO_TICKS(deadline - now)) != pdTRUE) {
+      return LINK_TIMEOUT;
+    }
+    if (r.prompt) {
       return out[0] != '\0' ? LINK_OK : LINK_NO_DATA;
     }
-    if (sameText(line, "?")) {
+    if (sameText(r.text, "?")) {
       return LINK_PROTOCOL;
     }
-    if (len != 0u && out[0] == '\0') {
-      strncpy(out, line, cap - 1u);
+    if (r.text[0] != '\0' && out[0] == '\0') {
+      strncpy(out, r.text, cap - 1u);
       out[cap - 1u] = '\0';
     }
   }

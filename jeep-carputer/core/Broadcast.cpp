@@ -1,7 +1,10 @@
 #include "Broadcast.h"
 
-// Dimmer landmarks. 0x00 is the BOTTOM of the wheel on this car, confirmed by
-// the owner -- not "lights off, therefore daylight, therefore bright".
+// Dimmer landmarks.
+//
+// 0x00 is the BOTTOM of the wheel, confirmed by the owner -- and it is ALSO
+// what 0x210 reports with every light in the car switched off. One byte, two
+// meanings, wanting opposite brightness. Told apart by 0x1C8 below.
 #define DIM_LIGHTS_OFF 0x00u
 #define DIM_MAX        0xA4u   // top of the dimmer wheel
 #define DIM_CABIN      0xC8u   // above the wheel's top; believed cabin lights on
@@ -32,7 +35,11 @@ void broadcastClear(BroadcastState& st) {
   st.odometerDm = 0u;  st.odometerMs = 0u;
   st.ignition = IGN_UNKNOWN; st.ignitionMs = 0u;
   st.dimmerRaw = 0u;   st.dimmerMs = 0u;
-  st.lightsOn = false; st.lightsMs = 0u;
+  // Defaults to "lights on", which is the safe default: an absent 0x1C8 then
+  // leaves the dimmer wheel in full control exactly as before, rather than
+  // pinning the panel bright and taking the wheel away.
+  st.lightsOn = true;  st.lightsMs = 0u;
+  st.lightsRaw = 0u;   st.dimmerByte0 = 0u;
   st.flowRaw = 0u;     st.flowMs = 0u;
   st.frames = 0u;      st.decoded = 0u;
 }
@@ -129,6 +136,7 @@ bool broadcastApply(BroadcastState& st, const CanFrame& f, uint32_t nowMs) {
     case 0x210u:              // panel dimmer level in byte 1
       if (f.len < 2u) return false;
       st.dimmerRaw = f.data[1];
+      st.dimmerByte0 = f.data[0];
       st.dimmerMs = nowMs;
       break;
 
@@ -148,7 +156,13 @@ bool broadcastApply(BroadcastState& st, const CanFrame& f, uint32_t nowMs) {
     }
 
     case 0x1C8u:              // exterior lights
+      // Restored: it is the only signal separating "wheel wound down" from
+      // "lights off", and without it the panel goes dark in broad daylight.
+      // The raw byte is kept alongside the verdict, so if 0x02 turns out to be
+      // the wrong test the log says so instead of the screen misbehaving
+      // quietly.
       if (f.len < 1u) return false;
+      st.lightsRaw = f.data[0];
       st.lightsOn = (f.data[0] == 0x02u);
       st.lightsMs = nowMs;
       break;
@@ -161,9 +175,18 @@ bool broadcastApply(BroadcastState& st, const CanFrame& f, uint32_t nowMs) {
   return true;
 }
 
-uint16_t broadcastBacklightPermille(uint8_t dimmerRaw, bool haveSignal) {
+uint16_t broadcastBacklightPermille(uint8_t dimmerRaw, bool haveSignal,
+                                    bool lightsOn, bool haveLights) {
   if (!haveSignal) {
     return FULL_PM;           // fail bright: an unreadable dash beats a dark one
+  }
+  // Every light in the car off means daylight, whatever the wheel says -- and
+  // with the wheel wound down the wheel says 0x00, the same thing it says at
+  // the bottom of its travel at night. This is the only test that tells those
+  // two apart, and it is deliberately one-directional: it can brighten the
+  // panel, never dim it.
+  if (haveLights && !lightsOn) {
+    return FULL_PM;
   }
   if (dimmerRaw >= DIM_CABIN) {
     return CABIN_PM;

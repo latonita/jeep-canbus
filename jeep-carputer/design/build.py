@@ -11,7 +11,14 @@ import io, json, re
 
 # Swipe order first, then the boards that are not on the swipe axis.
 SCREENS = ["Splash.dc.html", "Trip.dc.html", "Main.dc.html", "Tyres.dc.html", "Health.dc.html",
-           "ConfirmReset.dc.html", "TyresUnmapped.dc.html", "Faults.dc.html", "Alert.dc.html", "Tilt.dc.html"]
+           "Settings.dc.html", "ConfirmReset.dc.html", "TyresUnmapped.dc.html", "Faults.dc.html",
+           "Alert.dc.html", "Tilt.dc.html"]
+
+# The landscape band, in the same order. TILT has no landscape board: it is
+# removed until an IMU exists, and a second version of a screen with nothing to
+# put on it is two screens of dashes rather than one.
+LANDSCAPE = [f.replace(".dc.html", ".landscape.dc.html")
+             for f in SCREENS if f != "Tilt.dc.html"]
 
 # The amber the .dc.html sources are authored in, mapped to what the firmware
 # actually paints. These values are COPIED FROM src/UiTheme.h, not computed:
@@ -63,19 +70,38 @@ def main():
     notes = {n["id"]: n["text"] for n in canvas["annotations"]}
     note_for = {"Splash.dc.html": "splash-note", "Main.dc.html": "drive-note", "Tyres.dc.html": "tyres-note",
                 "Health.dc.html": "health-note", "Trip.dc.html": "trip-note",
+                "Settings.dc.html": "settings-note",
                 "Tilt.dc.html": "tilt-note", "Faults.dc.html": "faults-note",
                 "Alert.dc.html": "alert-note", "TyresUnmapped.dc.html": "unmapped-note",
                 "ConfirmReset.dc.html": "confirm-note"}
+    # Landscape boards that carry a note of their own. The rest are the same
+    # page turned ninety degrees and are covered by the band note, so repeating
+    # the portrait note under them would be noise.
+    note_for.update({"Tyres.landscape.dc.html": "landscape-tyres-note",
+                     "Settings.landscape.dc.html": "landscape-settings-note",
+                     "Health.landscape.dc.html": "landscape-health-note",
+                     "Faults.landscape.dc.html": "landscape-faults-note",
+                     "ConfirmReset.landscape.dc.html": "landscape-confirm-note",
+                     "Alert.landscape.dc.html": "landscape-alert-note"})
 
-    cards = []
-    for f in SCREENS:
-        note = notes.get(note_for.get(f) or "", "")
-        note_html = ""
-        if note:
-            note_html = '<div class="note">%s</div>' % "".join(
-                "<p>%s</p>" % p.replace("\n", "<br>") for p in note.split("\n\n")[1:])
-        cards.append('<figure><figcaption>%s</figcaption><div class="screen">%s</div>%s</figure>'
-                     % (titles.get(f, f.replace(".dc.html", "")), body_of(f, subs), note_html))
+    # Board size comes from canvas.json rather than the stylesheet, so the sheet
+    # cannot disagree with the canvas about how big a screen is.
+    sizes = {a["file"]: (a.get("w", 240), a.get("h", 320)) for a in canvas["artboards"]}
+
+    def sheet(files):
+        cards = []
+        for f in files:
+            w, h = sizes.get(f, (240, 320))
+            note = notes.get(note_for.get(f) or "", "")
+            note_html = ""
+            if note:
+                note_html = '<div class="note">%s</div>' % "".join(
+                    "<p>%s</p>" % p.replace("\n", "<br>") for p in note.split("\n\n")[1:])
+            cards.append('<figure style="width:%dpx;"><figcaption>%s</figcaption>'
+                         '<div class="screen" style="width:%dpx;height:%dpx;">%s</div>%s</figure>'
+                         % (w, titles.get(f, f.replace(".dc.html", "")), w, h,
+                            body_of(f, subs), note_html))
+        return "".join(cards)
 
     accent = subs.get("#FFA31A", "#FFA31A")
     flat = lambda t: t.replace("\n\n", "<br><br>").replace("\n", " ")
@@ -94,14 +120,17 @@ def main():
          padding:28px 24px 60px; }
   h1 { font-size:22px; font-weight:600; letter-spacing:.14em; color:%(accent)s;
        margin:0 0 4px; text-transform:uppercase; }
+  h2 { font-size:18px; font-weight:600; letter-spacing:.14em; color:%(accent)s;
+       margin:46px 0 6px; text-transform:uppercase;
+       border-top:1px solid #3A2C18; padding-top:26px; }
   .sub { font-size:14px; color:#7A6449; margin:0 0 6px; max-width:66ch; line-height:1.5; }
   .axis { font-size:13px; color:#8C7452; margin:0 0 28px; max-width:78ch; line-height:1.6;
           border-left:2px solid #3A2C18; padding-left:12px; }
   .sheet { display:flex; flex-wrap:wrap; gap:34px 30px; align-items:flex-start; }
-  figure { margin:0; width:240px; }
+  figure { margin:0; }
   figcaption { font-size:11px; font-weight:600; letter-spacing:.16em; color:%(dim)s;
                text-transform:uppercase; margin-bottom:7px; }
-  .screen { width:240px; height:320px; box-shadow:0 0 0 1px #3A2C18, 0 10px 26px rgba(0,0,0,.6);
+  .screen { box-shadow:0 0 0 1px #3A2C18, 0 10px 26px rgba(0,0,0,.6);
             overflow:hidden; }
   .note { font-size:12px; line-height:1.55; color:#7A6449; margin-top:10px; }
   .note p { margin:0 0 7px; }
@@ -113,16 +142,20 @@ def main():
 </head>
 <body>
 <h1>Jeep Carputer Screens</h1>
-<p class="sub">True 240&times;320 for the Waveshare ESP32-S3 panel. In swipe order first &mdash; welcome, then the four peers, DRIVE being where the boot settles &mdash; then the boards that are not on the swipe axis: the reset dialog, what TYRES looks like today, and three that are designed but not built. Zoom to judge legibility; these are life size.</p>
+<p class="sub">True 240&times;320 for the Waveshare ESP32-S3 panel. In swipe order first &mdash; welcome, then the five peers, DRIVE being where the boot settles and SETTINGS last &mdash; then the boards that are not on the swipe axis: the reset dialog, what TYRES looks like today, and three that are designed but not built. Zoom to judge legibility; these are life size.</p>
 <p class="axis">%(axis)s</p>
 <div class="sheet">%(cards)s</div>
+<h2>Landscape</h2>
+<p class="axis">%(lsaxis)s</p>
+<div class="sheet">%(lscards)s</div>
 <p class="axis" style="margin-top:34px;">%(stale)s</p>
 </body>
 </html>""" % {"accent": accent, "dim": subs.get("#9A6A22", "#9A6A22"), "axis": flat(notes["swipe-axis"]),
-              "cards": "".join(cards), "stale": flat(notes["stale-note"])}
+              "cards": sheet(SCREENS), "lsaxis": flat(notes["landscape-axis"]),
+              "lscards": sheet(LANDSCAPE), "stale": flat(notes["stale-note"])}
 
-    io.open(out, "w", encoding="utf-8").write(html)
-    print("%s  <-  %d screens" % (out, len(cards)))
+    io.open(out, "w", encoding="utf-8", newline="\n").write(html)
+    print("%s  <-  %d portrait + %d landscape" % (out, len(SCREENS), len(LANDSCAPE)))
 
 
 main()

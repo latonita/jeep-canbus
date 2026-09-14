@@ -32,9 +32,14 @@ enum UiScreenId {
   UI_DRIVE,
   UI_TYRES,
   UI_HEALTH,
+  UI_SETTINGS,
   UI_SCREEN_COUNT,
 };
 
+// SETTINGS is deliberately last. It is the only page a driver reads while
+// stopped, so it costs the least sitting furthest from where the boot settles,
+// and putting it at an end means no driving screen is ever behind it.
+//
 // Where the boot settles, and the only screen the driver can reach from either
 // direction with one swipe. Being a page IN from the end is the point: TRIP is
 // one flick left, TYRES one flick right.
@@ -63,3 +68,13 @@ void uiSplash(uint32_t holdMs);
 // Tell the UI the link handshake finished. Safe to call from any task, and
 // safe to never call: the splash gives up on its own.
 void uiLinkReady(bool ok);
+
+// Adapter identity for the SETTINGS info block. `mode` is "STREAM", "ATMA" or
+// "DOWN"; `adapter` is a short version string such as "v2.1". Both are copied,
+// so the caller's buffers need not outlive the call. Either may be null, which
+// leaves that field showing dashes.
+//
+// Read-only by design: this block reports what the link is doing and offers no
+// way to change it. A settings page that can drop the link eventually will,
+// and the link is the entire device.
+void uiSetLinkInfo(const char* mode, const char* adapter);

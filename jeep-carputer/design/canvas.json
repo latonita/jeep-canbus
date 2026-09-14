@@ -1,16 +1,173 @@
 {
   "artboards": [
-    { "file": "Splash.dc.html", "title": "0 / WELCOME", "x": -320, "y": 0, "w": 240, "h": 320 },
-    { "file": "Trip.dc.html", "title": "1 / TRIP", "x": 0, "y": 0, "w": 240, "h": 320 },
-    { "file": "Main.dc.html", "title": "2 / DRIVE - boot lands here", "x": 320, "y": 0, "w": 240, "h": 320 },
-    { "file": "Tyres.dc.html", "title": "3 / TYRES", "x": 640, "y": 0, "w": 240, "h": 320 },
-    { "file": "Health.dc.html", "title": "4 / HEALTH", "x": 960, "y": 0, "w": 240, "h": 320 },
-
-    { "file": "ConfirmReset.dc.html", "title": "TRIP / reset confirmation", "x": -320, "y": 460, "w": 240, "h": 320 },
-    { "file": "TyresUnmapped.dc.html", "title": "TYRES / what ships today", "x": 0, "y": 460, "w": 240, "h": 320 },
-    { "file": "Faults.dc.html", "title": "HEALTH / faults drill-down - NOT BUILT", "x": 320, "y": 460, "w": 240, "h": 320 },
-    { "file": "Alert.dc.html", "title": "CRITICAL ALERT / overlay - NOT BUILT", "x": 640, "y": 460, "w": 240, "h": 320 },
-    { "file": "Tilt.dc.html", "title": "TILT / removed until an IMU exists", "x": 960, "y": 460, "w": 240, "h": 320 }
+    {
+      "file": "Splash.dc.html",
+      "title": "0 / WELCOME",
+      "x": -320,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Trip.dc.html",
+      "title": "1 / TRIP",
+      "x": 0,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Main.dc.html",
+      "title": "2 / DRIVE - boot lands here",
+      "x": 320,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Tyres.dc.html",
+      "title": "3 / TYRES",
+      "x": 640,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Health.dc.html",
+      "title": "4 / HEALTH",
+      "x": 960,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Settings.dc.html",
+      "title": "5 / SETTINGS",
+      "x": 1280,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "ConfirmReset.dc.html",
+      "title": "TRIP / reset confirmation",
+      "x": -320,
+      "y": 460,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "TyresUnmapped.dc.html",
+      "title": "TYRES / what ships today",
+      "x": 0,
+      "y": 460,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Faults.dc.html",
+      "title": "HEALTH / faults drill-down - NOT BUILT",
+      "x": 320,
+      "y": 460,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Alert.dc.html",
+      "title": "CRITICAL ALERT / overlay - NOT BUILT",
+      "x": 640,
+      "y": 460,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Tilt.dc.html",
+      "title": "TILT / removed until an IMU exists",
+      "x": 960,
+      "y": 460,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Splash.landscape.dc.html",
+      "title": "L0 / WELCOME",
+      "x": -400,
+      "y": 1250,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "Trip.landscape.dc.html",
+      "title": "L1 / TRIP",
+      "x": 0,
+      "y": 1250,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "Main.landscape.dc.html",
+      "title": "L2 / DRIVE - boot lands here",
+      "x": 400,
+      "y": 1250,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "Tyres.landscape.dc.html",
+      "title": "L3 / TYRES",
+      "x": 800,
+      "y": 1250,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "Health.landscape.dc.html",
+      "title": "L4 / HEALTH",
+      "x": 1200,
+      "y": 1250,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "Settings.landscape.dc.html",
+      "title": "L5 / SETTINGS",
+      "x": 1600,
+      "y": 1250,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "ConfirmReset.landscape.dc.html",
+      "title": "L / TRIP reset confirmation",
+      "x": -400,
+      "y": 1990,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "TyresUnmapped.landscape.dc.html",
+      "title": "L / TYRES as shipped",
+      "x": 0,
+      "y": 1990,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "Faults.landscape.dc.html",
+      "title": "L / FAULTS - NOT BUILT",
+      "x": 400,
+      "y": 1990,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "Alert.landscape.dc.html",
+      "title": "L / CRITICAL ALERT - NOT BUILT",
+      "x": 800,
+      "y": 1990,
+      "w": 320,
+      "h": 240
+    }
   ],
   "annotations": [
     {
@@ -18,7 +175,7 @@
       "x": 0,
       "y": -170,
       "w": 1200,
-      "text": "HORIZONTAL AXIS - four peers, hard ends, no wrapping. This is the only axis a moving driver uses: a thumb flick anywhere on the panel, no aiming.\n\nOne swipe moves at most ONE page, however hard it is thrown. A scroller left to itself predicts where the momentum would carry it and snaps to whatever is nearest, which skips two cards on a brisk flick - fine in a photo gallery, wrong here.\n\nDRIVE is index 2 of 4 but is where the boot settles, because it is the only card reachable from either direction in one swipe. TRIP is one flick left, TYRES one flick right.\n\nThere is NO idle timeout. An earlier draft returned to DRIVE after 30s; it was removed. The driver put the screen on TYRES deliberately, looked at the road, and found a different page waiting. A page changes only when a finger changes it.\n\nThe vertical axis (drill-downs) and the settings long-press are designed but NOT BUILT."
+      "text": "HORIZONTAL AXIS - five peers in order, hard ends, no wrapping: TRIP, DRIVE, TYRES, HEALTH, SETTINGS. This is the only axis a moving driver uses: a thumb flick anywhere on the panel, no aiming.\n\nOne swipe moves at most ONE page, however hard it is thrown. A scroller left to itself predicts where the momentum would carry it and snaps to whatever is nearest, which skips two cards on a brisk flick - fine in a photo gallery, wrong here.\n\nDRIVE is index 2 of 5 but is where the boot settles, because it is the only card reachable from either direction in one swipe. TRIP is one flick left, TYRES one flick right. SETTINGS is last on purpose: it is the only page read with the truck stopped, so it costs the most flicks and is never landed on by accident.\n\nThere is NO idle timeout. An earlier draft returned to DRIVE after 30s; it was removed. The driver put the screen on TYRES deliberately, looked at the road, and found a different page waiting. A page changes only when a finger changes it.\n\nThe vertical axis (drill-downs) is designed but NOT BUILT. The settings long-press is gone - settings is a page on this axis now."
     },
     {
       "id": "true-size",
@@ -54,6 +211,13 @@
       "y": 360,
       "w": 260,
       "text": "HEALTH\n\nCOOLANT and AMBIENT live here now, off DRIVE. Both are temperatures, neither changes fast enough to be worth a glance while moving, and ambient had been decoded from 0x015 and displayed nowhere at all.\n\nMIL is deliberately absent. Its bit reads TRUE in every sample including at speed - either the truck really has a fault or the bit is wrong, and a permanently-lit warning is worse than none.\n\nThe lamp pills are drawn but NOT YET DRIVEN: nothing in the firmware can light them."
+    },
+    {
+      "id": "settings-note",
+      "x": 1280,
+      "y": 360,
+      "w": 260,
+      "text": "SETTINGS\n\nINVERT COLOURS exists because the panel is not always read in the dark. Accent on black is right at night and at dusk; with the sun square on the glass, black on teal carries further than teal on black, because the lit area is then the larger one. It is one row, not a brightness slider, because a driver reaching for it is squinting already.\n\nNote for anyone reading the driver: the panel's NORMAL state is esp_lcd_panel_invert_color(true). That is not a typo and it is not the setting - it is what this controller needs to paint correct colours at all. Inverting for sunlight therefore calls it with FALSE. The sense of the flag is backwards from the name of the setting, and a reader who assumes otherwise gets a screen that looks broken on boot.\n\nThe choice persists in NVS. A driver who inverted it for an afternoon of low western sun should not have to find it again after every key cycle; the cost of remembering is one byte, and the cost of forgetting is a setting nobody bothers to use twice.\n\nThe rows below it are drawn empty rather than filled with plausible options. There are no other settings, and a page that invents some to look finished is a page that teaches the driver to distrust it.\n\nThe INFO block is READ-ONLY. LINK is STREAM, ATMA or DOWN; ADAPTER is the 328's reported firmware; BUS is frames per second off the bus, which is the one number that says whether the whole instrument is being fed. All three are diagnostics for the person holding a laptop, not controls - a settings page that can drop the link is a settings page that eventually will, in a car park, at night, with no way back."
     },
     {
       "id": "confirm-note",
@@ -103,6 +267,55 @@
       "y": 800,
       "w": 560,
       "text": "NO NUMBER LIES ABOUT ITS AGE\n\nATMA delivers only about 61 of 168 frames/sec, so gaps are normal. Every value HOLDS its last reading and goes DIM once past its TTL, rather than blinking to dashes on a gap that is entirely routine. Values that were never available, or that a module answered with its all-ones sentinel, show dashes instead - a frozen-but-plausible number is the failure mode that gets believed."
+    },
+    {
+      "id": "landscape-axis",
+      "x": 0,
+      "y": 1080,
+      "w": 1600,
+      "text": "LANDSCAPE - 320x240, the same five peers\n\nRotation is a SETTINGS row, not a second product. Same pages, same order, same one-flick-one-page rule, same hard ends, same absence of an idle timeout. What changes is which axis is scarce: portrait has 320px of height to spend and only 240 of width, landscape has exactly the reverse, and every difference in this band follows from that one fact.\n\nTHE DOT RAIL MOVES INTO THE STATUS BAR. Portrait can afford a 26px rail of its own along the bottom - that is 8 percent of 320. Landscape cannot: the same 26px is 11 percent of 240, taken off the only axis that is short. The bar is 320px wide and carries three short items, so the dots ride in its true centre and the whole bottom rail goes back to content. Landscape gets 218px of content height rather than 192. The rail is the one piece of chrome that does not survive the rotation unchanged, and it is worth the discontinuity.\n\nTWO COLUMNS REPLACE A STACK. Portrait puts the hero number on top and the supporting grid beneath it. Landscape puts the hero in a 189px left column and the same values in a 130px right stack, divided by one rule. Nothing is dropped, nothing is added, nothing is reordered - it is the same instrument turned ninety degrees, which is what makes a runtime toggle safe rather than a second design to keep in sync.\n\nTHREE BOARDS DO NOT TAKE THE TWO-COLUMN TREATMENT, and each refused it for a measured reason rather than a taste. TYRES is already a grid and gets a wider one. FAULTS is a list and gets wider rows. SETTINGS was drawn in two columns first and the label would not fit - see its note; that is the one place the rotation made something harder rather than easier.\n\nNO NEW TYPE. Every numeral on every landscape board is 66px or 30px CSS - font_digits_64 and font_digits_30 - and every word is font_label_14. The landscape set generates no new font and costs no extra flash. That is a constraint that was enforced, not a coincidence: four tyre pressures at hero size want 2x73px of digits plus labels plus chrome, which is 238 of the 218px available, so hero-size tyres were drawn and then thrown out."
+    },
+    {
+      "id": "landscape-tyres-note",
+      "x": 800,
+      "y": 1530,
+      "w": 300,
+      "text": "TYRES, LANDSCAPE - and why the two boards now diverge\n\nThe MAPPED board keeps a 2x2, because a 2x2 makes a spatial claim: the left column is the left of the truck and the top row is the front. At 160px per cell the corner gets its full name on one line AND the word LOW beside it, so the soft wheel is findable without comparing four numbers against a target printed at the bottom of the screen. That is the whole landscape gain here, and it is a real one - the hero feature exists to be read at a glance.\n\nThe board that SHIPS does not use a 2x2, because the spatial claim is exactly what the data does not support. Portrait had no choice: 240px will not hold four columns. Landscape will. So the shipped board is four sensors in a row, in index order, with no geometry implied at all. The layout finally says the same thing the caption has always said.\n\nThe unit moves to the title as a single BAR key. Printing bar four times is noise, and the width it costs is the width the corner names need."
+    },
+    {
+      "id": "landscape-settings-note",
+      "x": 1600,
+      "y": 1530,
+      "w": 300,
+      "text": "SETTINGS, LANDSCAPE - and the ORIENTATION row\n\nORIENTATION is the row that makes this whole band exist, and it is added to the PORTRAIT board too. It takes the first of the two rows that were deliberately drawn empty - the note there says a page that invents options to look finished teaches the driver to distrust it, which stands. This is not an invented option. One placeholder row remains.\n\nIt sits BELOW invert colours, not above. Invert is reached while squinting into low western sun with the truck moving. Orientation is set once, when the bracket is chosen, and then never touched again. The row a driver needs in a hurry stays first.\n\nTHIS IS THE ONE PAGE THAT DOES NOT GET TWO COLUMNS, and it was drawn that way first before being measured. Every word on the panel is font_label_14 - there is no smaller label face and there is not going to be one - so ORIENTATION plus its LANDSCAPE chip is about 205px and ADAPTER plus its value about 106px. Two columns want 351px of a 320px board. INVERT COLOURS wrapped onto two lines in the first render, and a settings row that reflows is a settings row that looks broken.\n\nSo the controls keep the full width and INFO becomes a strip along the bottom, three pairs read left to right. Landscape is what makes that strip possible at all: the three pairs need 268px and portrait has 240. The page ends up better than the two-column version would have been, which is luck rather than judgement - the point is that it was measured.\n\nIMPLEMENTATION, not design: flipping this rebuilds the entire LVGL tree. The pool is a fixed 64KB with LV_USE_ASSERT_MALLOC and a bare while(1) handler, so the old tree must be freed BEFORE the new one is built or the toggle is a silent freeze rather than an error. The panel mirror and the touch swap_xy/mirror flags have to move together too: Touch.cpp is explicit that the two agree by construction today and that changing one alone puts every tap on the wrong side."
+    },
+    {
+      "id": "landscape-health-note",
+      "x": 1200,
+      "y": 1530,
+      "w": 300,
+      "text": "HEALTH, LANDSCAPE\n\nThree regions rather than two. Hero and temperatures share the top 156px in the usual two columns, and LAMPS takes a full-width strip underneath both.\n\nThe pills are the one element that is unambiguously better in landscape: three targets at 98px instead of 74, on a row that is no longer competing with anything for height.\n\nThey are still NOT DRIVEN. Nothing in the firmware can light them, in either orientation. MIL is still deliberately absent."
+    },
+    {
+      "id": "landscape-faults-note",
+      "x": 400,
+      "y": 2270,
+      "w": 300,
+      "text": "FAULTS, LANDSCAPE - one line per fault\n\nThe only board whose content changes rather than just its arrangement, and the one place the rotation costs something.\n\nPortrait wraps each fault onto two lines and fits five. Landscape has 148px of list to spend, so two-line rows would fit THREE, and this truck's sixteen stored codes would then need six screens of scrolling to read.\n\nSo the active/stored state moves out of a text badge and onto a 3px coloured left edge - red active, dim stored - which buys back the width to keep the description on the same line as the code. Five rows again, at the cost of ellipsising the longest descriptions. For a read-only list that is scanned for a code, that is the better trade. If it turns out not to be, the fix is two-line rows and three of them, not a smaller font."
+    },
+    {
+      "id": "landscape-confirm-note",
+      "x": -400,
+      "y": 2270,
+      "w": 300,
+      "text": "RESET CONFIRMATION, LANDSCAPE\n\nThe same dialog, the same three ways out that all mean no, the same shrinking rule standing in for the timeout.\n\nThe card is 272x152 rather than 208x156, and the width goes to the targets: 118x46 buttons, up from 88x44. A confirmation is the one place on this panel where a mis-tap is expensive, so the extra width goes there rather than into the text. A narrower 232px card was drawn first and left a slice of the hero digit standing outside it, which reads as a rendering fault rather than as a page continuing underneath.\n\nTRIP still slides underneath it. The card is on the root in both orientations."
+    },
+    {
+      "id": "landscape-alert-note",
+      "x": 800,
+      "y": 2270,
+      "w": 300,
+      "text": "ALERT, LANDSCAPE\n\nStill dark with red accents, still never a red flood. The 58px DISMISS target keeps its full width - it is the one control on the screen and there must be no way to mis-tap it.\n\nThe message and the number split into two columns, which suits the content: the headline is words and wraps, the reading is one big number and does not. Portrait stacked them and had to centre both.\n\nStill NOT BUILT, in either orientation. This remains the gap that matters most."
     }
   ],
   "launch": {

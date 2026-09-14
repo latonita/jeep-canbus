@@ -54,6 +54,8 @@ struct BroadcastState {
   uint32_t dimmerMs;
 
   bool     lightsOn;        // 0x1C8 byte 0 == 0x02
+  uint8_t  lightsRaw;       // the byte itself, so a wrong guess shows in the log
+  uint8_t  dimmerByte0;     // 0x210 byte 0; 0x03 in every recorded sample
   uint32_t lightsMs;
 
   // Instantaneous fuel flow from 0x1A7, raw: L/h = flowRaw / 160. The 0xFFFF
@@ -89,4 +91,15 @@ bool broadcastApply(BroadcastState& st, const CanFrame& f, uint32_t nowMs);
 // `haveSignal` false -- nothing heard for a while -- returns 1000 (full).
 // Failing bright is the safe direction: an unreadable dash is worse than a
 // bright one.
-uint16_t broadcastBacklightPermille(uint8_t dimmerRaw, bool haveSignal);
+// Panel brightness for a dimmer reading, in per mille of full duty.
+//
+// `haveLights` / `lightsOn` come from 0x1C8 and exist to resolve one ambiguity:
+// 0x210 reports 0x00 both for the BOTTOM OF THE DIMMER WHEEL and for EVERY
+// LIGHT IN THE CAR BEING OFF, and those want opposite brightness -- barely
+// visible at night, full brightness in daylight.
+//
+// They can only ever make the panel BRIGHTER. With no lights signal the dimmer
+// wheel keeps full control, exactly as before, so a bus that never carries
+// 0x1C8 loses nothing.
+uint16_t broadcastBacklightPermille(uint8_t dimmerRaw, bool haveSignal,
+                                    bool lightsOn, bool haveLights);
