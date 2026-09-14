@@ -33,5 +33,10 @@ extern const uint8_t kTpmsSignalCount;
 // the poll plan uses.
 #define TPMS_ROAD_WHEELS_PID 0x213Bu
 
+// The spare, which `21 3B` deliberately excludes -- it carries road wheels
+// only. It has to be asked for separately, and it changes about as fast as a
+// spare wheel does, so it is polled far more slowly than the corners.
+#define TPMS_SPARE_PID 0x2124u
+
 // Reported pressure is psi; the cabin reads bar.
 #define TPMS_PSI_TO_BAR 0.0689476f

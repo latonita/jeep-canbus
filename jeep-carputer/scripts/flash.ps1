@@ -4,9 +4,13 @@
 # and forwarding one needs usbipd plus an elevated shell. Building in WSL and
 # flashing from Windows avoids that entirely, at the cost of this script.
 #
-#   pwsh -File scripts/flash.ps1              # flash, then open the monitor
-#   pwsh -File scripts/flash.ps1 -NoMonitor   # flash only
-#   pwsh -File scripts/flash.ps1 -Port COM9   # somewhere else
+# NOTE the command is `powershell`, not `pwsh`. This machine has Windows
+# PowerShell 5.1; `pwsh` is PowerShell 7 and is not installed.
+#
+#   powershell -File scripts\flash.ps1               # flash, then open the monitor
+#   powershell -File scripts\flash.ps1 -NoMonitor    # flash only
+#   powershell -File scripts\flash.ps1 -MonitorOnly  # just watch the log
+#   powershell -File scripts\flash.ps1 -Port COM9    # somewhere else
 #
 # Build first, in WSL:
 #   wsl -- bash -lc 'cd /mnt/d/Repos/car/jeep-canbus/jeep-carputer && pio run -e s3'
@@ -14,7 +18,8 @@
 param(
     [string]$Port = "COM18",
     [string]$Python = "C:\Lang\miniconda3\python.exe",
-    [switch]$NoMonitor
+    [switch]$NoMonitor,
+    [switch]$MonitorOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,9 +45,11 @@ foreach ($img in $images) {
     $args += $path
 }
 
-Write-Host "flashing $Port from $build" -ForegroundColor Cyan
-& $Python @args
-if ($LASTEXITCODE -ne 0) { Write-Error "esptool failed ($LASTEXITCODE)" }
+if (-not $MonitorOnly) {
+    Write-Host "flashing $Port from $build" -ForegroundColor Cyan
+    & $Python @args
+    if ($LASTEXITCODE -ne 0) { Write-Error "esptool failed ($LASTEXITCODE)" }
+}
 
 if (-not $NoMonitor) {
     Write-Host "`nopening monitor -- Ctrl+] to quit" -ForegroundColor Cyan

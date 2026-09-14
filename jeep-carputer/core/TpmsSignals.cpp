@@ -15,6 +15,13 @@ const SignalDef kTpmsSignals[] = {
     {ECU_WCM, 0x213B, 24, 8, RENDER_RAW, -1, -1, "WCM.Tyre Sensor 2"},
     {ECU_WCM, 0x213B, 32, 8, RENDER_RAW, -1, -1, "WCM.Tyre Sensor 3"},
     {ECU_WCM, 0x213B, 40, 8, RENDER_RAW, -1, -1, "WCM.Tyre Sensor 4"},
+
+    // The spare, from its own request. `21 24` answered `61 24 07 4C 01 83` in
+    // the probe log, so the same layout applies: two bytes of echo, then
+    // pressure in psi at bit 16. The recorded 7 psi is either a genuinely flat
+    // spare or a sensor that is not paired -- which is exactly why it is worth
+    // a cell on the screen rather than a footnote.
+    {ECU_WCM, 0x2124, 16, 8, RENDER_RAW, -1, -1, "WCM.Tyre Spare"},
 };
 
 const uint8_t kTpmsSignalCount = sizeof(kTpmsSignals) / sizeof(kTpmsSignals[0]);

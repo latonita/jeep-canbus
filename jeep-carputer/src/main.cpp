@@ -35,6 +35,8 @@
 #include "SignalDb.h"
 #include "Broadcast.h"
 #include "TpmsSignals.h"
+#include "Trip.h"
+#include "TripStore.h"
 #include "VehicleState.h"
 
 static const char* TAG = "carputer";
@@ -44,6 +46,17 @@ static IsoTpClient gIsoTp(gLink);
 static VehicleState gState;
 static PollScheduler gSched;
 static BroadcastState gBcast;
+static TripSet gTrips;
+
+// A long press on the TRIP page asks for a reset. The request is a flag rather
+// than a direct call because gTrips is written by carTask alone: letting the
+// LVGL task clear it mid-integration is the kind of race that shows up once a
+// month as a trip that lost a kilometre.
+static volatile uint8_t gTripResetReq = 0xFFu;
+
+static void requestTripReset(uint8_t which) {
+  gTripResetReq = which;
+}
 
 // What to ask for, and how often. Modest rates on purpose: this is an 83.3 kbps
 // bus that the radio and instrument cluster depend on, and every request here
@@ -57,6 +70,7 @@ static const PollItem kPlan[] = {
     {ECU_CCN, 0x213Fu, 5000u},   // warning lamps     -- not broadcast
     {ECU_CCN, 0x2135u, 10000u},  // fluid-low flags   -- not broadcast
     {ECU_WCM, TPMS_ROAD_WHEELS_PID, 5000u},  // tyre pressures -- request-only
+    {ECU_WCM, TPMS_SPARE_PID, 30000u},       // the spare      -- own request
 };
 
 static const uint8_t kPlanCount = sizeof(kPlan) / sizeof(kPlan[0]);
@@ -281,6 +295,42 @@ static void applyBacklight(uint32_t now) {
 // period is still comfortably met.
 #define MONITOR_WINDOW_MS 700u
 
+// How often TRIP A is committed to flash. A minute of driving is at most ~1.5 km
+// and a few hundred millilitres to lose to a power cut, against a write budget
+// that has to last the life of the car.
+#define TRIP_SAVE_INTERVAL_MS 60000u
+
+// Everything the trip meters need that does NOT depend on the link being up.
+//
+// Pulled out and called from two places, because it has to be. The bring-up
+// below retries the link forever, and everything after it -- including the only
+// code that acts on a reset request -- used to sit past that loop. On a bench
+// with no 328 the driver could long-press, confirm, watch the dialog close, and
+// have the request sit in gTripResetReq until the end of time. A dead link is
+// exactly when someone is most likely to be prodding the screen.
+static void tripHousekeeping(void) {
+  tripUpdate(gTrips, gBcast, nowMs());
+
+  const uint8_t resetReq = gTripResetReq;
+  if (resetReq < TRIP_COUNT) {
+    gTripResetReq = 0xFFu;
+    tripReset(gTrips, resetReq);
+    // Both sides of the reset, because "it did nothing" and "it did something
+    // invisible" look identical on the panel. odo 0 means no 0x014 has
+    // arrived, in which case the trip re-anchors to nothing and the distance
+    // legitimately stays as dashes.
+    ESP_LOGI(TAG, "trip %u reset: odo=%u start=%u km=%.1f L=%.2f",
+             (unsigned)resetReq, (unsigned)gTrips.t[resetReq].odoNowDm,
+             (unsigned)gTrips.t[resetReq].odoStartDm,
+             (double)tripKm(gTrips.t[resetReq]),
+             (double)tripLitres(gTrips.t[resetReq]));
+    if (resetReq == TRIP_A) {
+      tripStoreSaveNow(gTrips.t[TRIP_A]);
+    }
+  }
+  tripStoreSave(gTrips.t[TRIP_A], nowMs(), TRIP_SAVE_INTERVAL_MS);
+}
+
 static void carTask(void*) {
   // Retry rather than give up: on a cold start the 328 may still be coming up
   // with the radio, and the link is the only path to the vehicle.
@@ -289,7 +339,15 @@ static void carTask(void*) {
     ESP_LOGW(TAG, "link not ready, retrying");
     uiLogPrintf("link: no 328 (try %u, %us)", ++tries,
                 static_cast<unsigned>(nowMs() / 1000u));
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    // Wait in slices rather than one block. A reset asked for while the link is
+    // down is then applied within a tenth of a second instead of up to two, and
+    // the backlight failsafe keeps running -- a dead gateway must not also mean
+    // a screen stuck at whatever brightness it last saw.
+    for (uint8_t i = 0u; i < 20u; ++i) {
+      tripHousekeeping();
+      applyBacklight(nowMs());
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
   }
 
   uiLinkReady(true);
@@ -352,6 +410,10 @@ static void carTask(void*) {
             // actively turning, which reads as the screen ignoring them.
             applyBacklight(t);
           }
+          // Fold every frame in as it lands. Doing this once per outer loop
+          // instead would sample the fuel signal at 1 Hz through a signal that
+          // broadcasts at 10 Hz, and integrate a heavily aliased curve.
+          tripUpdate(gTrips, gBcast, t);
         }
       }
       gLink.monitorEnd();
@@ -362,6 +424,12 @@ static void carTask(void*) {
     }
 
     applyBacklight(nowMs());   // also covers the failsafe when 0x210 goes silent
+
+    // Trip housekeeping, outside the monitor window so an NVS write can never
+    // stall ATMA. The reset is applied here, on the one task that writes the
+    // trips, and is committed immediately -- the driver must see a cleared
+    // meter stay cleared across a key cycle.
+    tripHousekeeping();
 
     // A few requests, then back to listening. Bounded so a slow module cannot
     // starve the monitor window.
@@ -383,6 +451,13 @@ extern "C" void app_main(void) {
 
   registerPlanSignals();
 
+  // Trip meters. TRIP A is restored from flash; FROM START stays at zero by
+  // definition -- that difference is the entire reason there are two.
+  tripSetInit(gTrips);
+  if (tripStoreInit() == ESP_OK) {
+    (void)tripStoreLoad(gTrips.t[TRIP_A]);
+  }
+
   // Display bring-up. A failure here must not stop the car link: the data path
   // is the point of the device, the screen is only how it is presented.
   if (displayInit() == ESP_OK) {
@@ -391,6 +466,7 @@ extern "C" void app_main(void) {
     (void)displayFill(RGB565_BLACK);
     ESP_ERROR_CHECK(displayBacklight(100u));
     uiSetBroadcast(&gBcast);
+    uiSetTrips(&gTrips, requestTripReset);
     if (uiInit(&gState) != ESP_OK) {
       ESP_LOGE(TAG, "dashboard unavailable");
     } else if (touchInit() != ESP_OK) {

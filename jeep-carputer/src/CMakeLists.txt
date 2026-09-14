@@ -15,5 +15,5 @@ file(GLOB FONT_SRCS ${CMAKE_CURRENT_LIST_DIR}/fonts/*.c)
 idf_component_register(
     SRCS ${APP_SRCS} ${FONT_SRCS} ${CORE_SRCS}
     INCLUDE_DIRS "." "${CMAKE_SOURCE_DIR}/core"
-    REQUIRES driver esp_timer esp_lcd
+    REQUIRES driver esp_timer esp_lcd nvs_flash
 )

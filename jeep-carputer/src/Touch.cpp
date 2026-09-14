@@ -75,12 +75,123 @@ static const char* TAG = "touch";
 // Time to let the controller boot after its reset is released.
 #define CST328_BOOT_MS          60
 
+// How long a press is held after the controller stops reporting points.
+//
+// THIS IS NOT CONTACT BOUNCE -- it is a defect in the reporting path, and the
+// hold is the fix for it.
+//
+// esp_lcd_touch_cst328_get_xy() sets tp->data.points = 0 on every call
+// ("invalidate"), and read_data() only refills it when register 0xD005 says a
+// NEW frame is ready -- a register it clears on each read. The CST328 produces
+// frames at its own internal rate; LVGL polls every LV_DEF_REFR_PERIOD, which
+// is 16 ms. So LVGL asks more often than the chip answers, and every poll that
+// lands between frames reads zero points.
+//
+// Handed to LVGL raw, that makes ONE continuous finger press look like a burst
+// of press/release pairs at the polling rate. Every pair is a complete click,
+// which is why a single tap toggled the trip meter over and over -- and it
+// wrecks dragging too, because LVGL restarts the gesture on each phantom
+// release instead of tracking the finger.
+//
+// So: latch. A press stays pressed, at its last coordinates, until the
+// controller has been quiet for this long.
+//
+// SHORT, and it has to stay short. A hold that outlives a real lift is not a
+// small cosmetic error -- it breaks two separate things:
+//
+//   - lv_indev.c sets `pointer.pressed = (prev_state == RELEASED)` when the
+//     finger is found over a NEW object, and only sends LV_EVENT_CLICKED on
+//     release `if(pointer.pressed)`. So if the latch bridges the lift between
+//     letting go of one widget and touching another, the second widget never
+//     gets a click at all. That is exactly why the dialog's RESET button did
+//     nothing.
+//   - Two quick taps merge into one long press, so a double tap opened the
+//     reset dialog.
+//
+// An earlier attempt raised this to 250 ms for a stationary finger, to bridge
+// the controller's slower reporting when nothing is moving. It did make long
+// press work, and it caused both of the faults above. The gap it was bridging
+// and a real double-tap gap are the same length, so no timer can tell them
+// apart. The INT line below is what tells them apart instead.
+#define TOUCH_RELEASE_HOLD_MS 60
+
 static i2c_master_bus_handle_t   s_bus = nullptr;
 static esp_lcd_panel_io_handle_t s_io = nullptr;
 static esp_lcd_touch_handle_t    s_touch = nullptr;
 static lv_indev_t*               s_indev = nullptr;
 
+// Latch state. Only the LVGL task touches these, from touchReadCb().
+static int32_t  s_lastX = 0;
+static int32_t  s_lastY = 0;
+static uint32_t s_lastPointMs = 0u;
+static bool     s_pressed = false;
+
+// Whether the INT line has been OBSERVED to behave as a level.
+//
+// esp_lcd_touch is given GPIO_NUM_NC, so nothing else drives or reads this pin
+// and we are free to sample it as a plain input. What we need from it is one
+// thing the I2C path cannot give: whether a finger is on the glass RIGHT NOW,
+// as opposed to whether a new frame happens to be ready.
+//
+// Whether the CST328 holds INT asserted for the duration of a contact or only
+// pulses it per frame is not documented anywhere we have, so this is not
+// assumed -- it is proven at runtime. Seeing INT still asserted on a poll that
+// returned NO points, while a press is in progress, is proof that it outlived a
+// frame and is therefore a level. Until that is seen, the timer latch alone
+// decides, which is the behaviour without any of this.
+static bool     s_intProven = false;
+
 bool touchReady(void) { return s_indev != nullptr; }
+
+// Our own read callback rather than lvgl_port_add_touch(), which hands LVGL the
+// driver's answer unfiltered and so inherits the phantom releases described
+// above. Runs inside the LVGL task with the lock already held -- do not lock
+// here.
+static void touchReadCb(lv_indev_t* indev, lv_indev_data_t* data) {
+  (void)indev;
+
+  uint16_t x = 0u, y = 0u, strength = 0u;
+  uint8_t points = 0u;
+
+  // Tolerate an I2C error instead of aborting on it, which is what the port
+  // does: a dropped transfer on a shaking car should cost one sample, not the
+  // firmware. A failed read simply looks like "no new frame", and the latch
+  // covers it exactly as it covers a real gap.
+  if (esp_lcd_touch_read_data(s_touch) == ESP_OK &&
+      esp_lcd_touch_get_coordinates(s_touch, &x, &y, &strength, &points, 1) &&
+      points > 0u) {
+    s_lastX = static_cast<int32_t>(x);
+    s_lastY = static_cast<int32_t>(y);
+    s_lastPointMs = lv_tick_get();
+    s_pressed = true;
+  } else if (s_pressed) {
+    // No new frame. Ask the INT line whether the finger is still there.
+    //
+    // INT asserted keeps the press alive indefinitely and with no timer
+    // involved, which is what makes a long press possible; INT released ends it
+    // within TOUCH_RELEASE_HOLD_MS, which is what keeps a double tap two taps
+    // and lets a click land on a button. The pin can only EXTEND a press, never
+    // start one, so a stuck-low line degrades to a stuck press on the object
+    // already under the finger rather than to phantom touches anywhere.
+    if (gpio_get_level(TOUCH_PIN_INT) == 0) {
+      s_lastPointMs = lv_tick_get();
+      if (!s_intProven) {
+        s_intProven = true;
+        ESP_LOGI(TAG, "INT is a level: contact tracked from GPIO%d, not the timer",
+                 (int)TOUCH_PIN_INT);
+      }
+    } else if (lv_tick_elaps(s_lastPointMs) >= TOUCH_RELEASE_HOLD_MS) {
+      s_pressed = false;
+    }
+  }
+
+  // Coordinates are reported even while released: LVGL uses the last point to
+  // decide where the release happened, and rewinding it to 0,0 would place
+  // every lift in the top-left corner.
+  data->point.x = s_lastX;
+  data->point.y = s_lastY;
+  data->state = s_pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+}
 
 // The vendor driver drives RST but never configures it as an output, so out of
 // the box its reset pulse silently does nothing -- the pad's output driver is
@@ -108,6 +219,24 @@ static esp_err_t resetPinInit(void) {
   return gpio_set_level(TOUCH_PIN_RST, 1);   // released; the driver pulses it
 }
 
+// INT as a plain polled input.
+//
+// esp_lcd_touch is handed GPIO_NUM_NC for this pin, so it neither configures
+// nor claims it and there is no ISR to race with -- we just read the level.
+//
+// Pulled UP, deliberately: high is "no contact", so a pin that turns out not to
+// be connected, or a controller that never drives it, reads as released and the
+// timer latch stays in charge. The failure direction is the safe one.
+static esp_err_t intPinInit(void) {
+  gpio_config_t cfg = {};
+  cfg.pin_bit_mask = 1ULL << static_cast<uint32_t>(TOUCH_PIN_INT);
+  cfg.mode = GPIO_MODE_INPUT;
+  cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+  cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  cfg.intr_type = GPIO_INTR_DISABLE;
+  return gpio_config(&cfg);
+}
+
 esp_err_t touchInit(void) {
   if (s_indev != nullptr) {
     return ESP_OK;
@@ -117,6 +246,12 @@ esp_err_t touchInit(void) {
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "reset pin config failed: %s", esp_err_to_name(err));
     return err;
+  }
+
+  err = intPinInit();
+  if (err != ESP_OK) {
+    // Not fatal: without INT the timer latch still runs the show.
+    ESP_LOGW(TAG, "int pin config failed: %s", esp_err_to_name(err));
   }
 
   // A bus of our own on I2C_NUM_1. The board's other I2C devices (IMU, RTC and
@@ -196,25 +331,30 @@ esp_err_t touchInit(void) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  lvgl_port_touch_cfg_t touch_cfg = {};
-  touch_cfg.disp = disp;
-  touch_cfg.handle = s_touch;
-  // Digitiser and panel are both 240x320, so no scaling. 0 would mean the same
-  // thing to the port, but say it out loud.
-  touch_cfg.scale.x = 1.0f;
-  touch_cfg.scale.y = 1.0f;
-  s_indev = lvgl_port_add_touch(&touch_cfg);
+  // Digitiser and panel are both 240x320, so there is no scaling to apply and
+  // the read callback can pass coordinates straight through.
+  if (!lvgl_port_lock(500)) {
+    ESP_LOGE(TAG, "cannot lock LVGL to register the touch device");
+    return ESP_ERR_TIMEOUT;
+  }
+  s_indev = lv_indev_create();
+  if (s_indev != nullptr) {
+    lv_indev_set_type(s_indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(s_indev, touchReadCb);
+    lv_indev_set_display(s_indev, disp);
+  }
+  lvgl_port_unlock();
   if (s_indev == nullptr) {
-    ESP_LOGE(TAG, "lvgl_port_add_touch failed");
+    ESP_LOGE(TAG, "lv_indev_create failed");
     return ESP_FAIL;
   }
 
   ESP_LOGI(TAG,
            "CST328 up: i2c%d sda=%d scl=%d rst=%d int=%d, %dx%d, "
-           "swap=%d mirror=%d/%d",
+           "swap=%d mirror=%d/%d, release hold %dms",
            static_cast<int>(TOUCH_I2C_PORT), TOUCH_PIN_SDA, TOUCH_PIN_SCL,
            TOUCH_PIN_RST, TOUCH_PIN_INT, LCD_H_RES, LCD_V_RES,
            static_cast<int>(TOUCH_SWAP_XY), static_cast<int>(TOUCH_MIRROR_X),
-           static_cast<int>(TOUCH_MIRROR_Y));
+           static_cast<int>(TOUCH_MIRROR_Y), TOUCH_RELEASE_HOLD_MS);
   return ESP_OK;
 }

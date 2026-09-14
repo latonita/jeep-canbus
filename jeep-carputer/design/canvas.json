@@ -1,155 +1,108 @@
 {
   "artboards": [
-    {
-      "file": "Splash.dc.html",
-      "title": "0 / WELCOME",
-      "x": -320,
-      "y": 0,
-      "w": 240,
-      "h": 320
-    },
-    {
-      "file": "Main.dc.html",
-      "title": "1 / DRIVE",
-      "x": 0,
-      "y": 0,
-      "w": 240,
-      "h": 320
-    },
-    {
-      "file": "Tyres.dc.html",
-      "title": "2 / TYRES",
-      "x": 320,
-      "y": 0,
-      "w": 240,
-      "h": 320
-    },
-    {
-      "file": "Health.dc.html",
-      "title": "3 / HEALTH",
-      "x": 640,
-      "y": 0,
-      "w": 240,
-      "h": 320
-    },
-    {
-      "file": "Trip.dc.html",
-      "title": "4 / TRIP",
-      "x": 960,
-      "y": 0,
-      "w": 240,
-      "h": 320
-    },
-    {
-      "file": "Tilt.dc.html",
-      "title": "5 / TILT",
-      "x": 1280,
-      "y": 0,
-      "w": 240,
-      "h": 320
-    },
-    {
-      "file": "Faults.dc.html",
-      "title": "HEALTH / faults drill-down",
-      "x": 0,
-      "y": 460,
-      "w": 240,
-      "h": 320
-    },
-    {
-      "file": "TyresUnmapped.dc.html",
-      "title": "TYRES / before mapping",
-      "x": 320,
-      "y": 460,
-      "w": 240,
-      "h": 320
-    },
-    {
-      "file": "Alert.dc.html",
-      "title": "CRITICAL ALERT / overlay",
-      "x": 640,
-      "y": 460,
-      "w": 240,
-      "h": 320
-    }
+    { "file": "Splash.dc.html", "title": "0 / WELCOME", "x": -320, "y": 0, "w": 240, "h": 320 },
+    { "file": "Trip.dc.html", "title": "1 / TRIP", "x": 0, "y": 0, "w": 240, "h": 320 },
+    { "file": "Main.dc.html", "title": "2 / DRIVE - boot lands here", "x": 320, "y": 0, "w": 240, "h": 320 },
+    { "file": "Tyres.dc.html", "title": "3 / TYRES", "x": 640, "y": 0, "w": 240, "h": 320 },
+    { "file": "Health.dc.html", "title": "4 / HEALTH", "x": 960, "y": 0, "w": 240, "h": 320 },
+
+    { "file": "ConfirmReset.dc.html", "title": "TRIP / reset confirmation", "x": -320, "y": 460, "w": 240, "h": 320 },
+    { "file": "TyresUnmapped.dc.html", "title": "TYRES / what ships today", "x": 0, "y": 460, "w": 240, "h": 320 },
+    { "file": "Faults.dc.html", "title": "HEALTH / faults drill-down - NOT BUILT", "x": 320, "y": 460, "w": 240, "h": 320 },
+    { "file": "Alert.dc.html", "title": "CRITICAL ALERT / overlay - NOT BUILT", "x": 640, "y": 460, "w": 240, "h": 320 },
+    { "file": "Tilt.dc.html", "title": "TILT / removed until an IMU exists", "x": 960, "y": 460, "w": 240, "h": 320 }
   ],
   "annotations": [
     {
       "id": "swipe-axis",
       "x": 0,
-      "y": -150,
-      "w": 900,
-      "text": "HORIZONTAL AXIS - the five peers, wrapping. This is the only axis a moving driver uses: a thumb flick anywhere on the panel, no aiming.\n\nAfter 30s untouched while the vehicle is moving, it animates back to DRIVE. Parked, it stays put.\n\nSwipe UP on any card for its detail view. Long-press the status bar for 1s to reach settings and diagnostics - deliberately the hardest gesture."
+      "y": -170,
+      "w": 1200,
+      "text": "HORIZONTAL AXIS - four peers, hard ends, no wrapping. This is the only axis a moving driver uses: a thumb flick anywhere on the panel, no aiming.\n\nOne swipe moves at most ONE page, however hard it is thrown. A scroller left to itself predicts where the momentum would carry it and snaps to whatever is nearest, which skips two cards on a brisk flick - fine in a photo gallery, wrong here.\n\nDRIVE is index 2 of 4 but is where the boot settles, because it is the only card reachable from either direction in one swipe. TRIP is one flick left, TYRES one flick right.\n\nThere is NO idle timeout. An earlier draft returned to DRIVE after 30s; it was removed. The driver put the screen on TYRES deliberately, looked at the road, and found a different page waiting. A page changes only when a finger changes it.\n\nThe vertical axis (drill-downs) and the settings long-press are designed but NOT BUILT."
     },
     {
       "id": "true-size",
-      "x": 1280,
-      "y": -150,
-      "w": 260,
+      "x": 960,
+      "y": -290,
+      "w": 240,
       "text": "Every artboard is drawn at true 240x320. Zoom in to judge legibility - that is the point of showing them at real size rather than scaled up."
     },
     {
-      "id": "drive-note",
+      "id": "trip-note",
       "x": 0,
       "y": 360,
       "w": 260,
-      "text": "DRIVE\n\nThe big number is the TRIP AVERAGE, not instant. Instant L/100km from 0x1A7 under-reads by 3-6x and no single constant fits, so it is not shown as a number anywhere.\n\nFLOW NOW is that same signal as an unlabelled relative bar - the shape is trustworthy, the scale is not. Honest use of a signal you cannot yet calibrate.\n\nRange and litres come from 0x159 B5 x 0.5 L against the confirmed 78.0 L tank - zero unverified constants."
+      "text": "TRIP\n\nTwo meters behind one card: TRIP A survives a key cycle in NVS, FROM START clears on every boot. A DOUBLE TAP swaps which one is showing; a LONG PRESS asks whether to zero the one on screen. Two taps rather than one because a single tap is what a thumb does to a panel it is only steadying itself against, and this is the one page that also carries a destructive gesture.\n\nDistance is the ODOMETER (0x014) differenced, not integrated speed - 100 m per count, the number the car itself keeps, so it cannot drift and it matches the dash to the last digit. An earlier draft integrated the 0x002 wheel counters; that is gone.\n\nFuel is the time integral of 0x1A7, which is already a rate: litres = SUM(Q x dt) / 5.76e8. Time-weighted on every frame, never a sum of samples - 21 to 30 percent of 0x1A7 frames drop and the rate varies per session, so a sum would scale with how much of the bus we happened to catch. An interval longer than 2 s is dropped rather than held."
     },
     {
-      "id": "tyres-note",
+      "id": "drive-note",
       "x": 320,
       "y": 360,
       "w": 260,
-      "text": "TYRES - the hero\n\nWCM 21 3B, four bytes, 1 psi per bit. Polled every 30s in the background even when off-screen, so the card opens populated and DRIVE can carry a live chip.\n\nByte-to-corner order is UNMAPPED. The board below is what ships until the mapping wizard has been run once."
+      "text": "DRIVE - the fuel card\n\nThe big number is the FROM START average, not instant. It needs no reset to mean how is this journey going, which is the question a driver actually has.\n\nFLOW is 0x1A7, which carries instantaneous flow directly: L/h = Q/160. Full scale on the bar is 40 L/h - an OM642 peaks higher, but idle is under 1 L/h and a cruise about 10, so a bar scaled to the true peak would live in its bottom sixth. It CLAMPS rather than auto-ranging.\n\nThe figure beside it switches unit with the car: L/100km while moving, L/h once stopped or crawling - idling in a jam or parked and running, litres per hour is what tells you what the waiting costs. The switch has a hysteresis band (L/h below 2 km/h, L/100 above 3) because a crawling car crosses a single threshold over and over and a readout that flips unit every few seconds cannot be read. Both are smoothed over ~3 s - raw Q is a per-stroke control signal and is very spiky.\n\nAn earlier version read 0x1A7 as injection quantity per stroke, multiplied by rpm, and carried a 3.00x measured correction to make a real drive come out right. All of that is gone: the signal was being modelled wrongly, not measured wrongly.\n\nIN TANK is the CCN fuel percentage against the confirmed 78.0 L tank. RANGE is those two divided, and shows dashes until the average is real.\n\nCOOLANT and BATTERY moved to HEALTH. Speed and rpm stay, small - there is a speedometer 30 cm away."
     },
     {
-      "id": "health-note",
+      "id": "tyres-note",
       "x": 640,
       "y": 360,
       "w": 260,
-      "text": "HEALTH\n\nMIL is deliberately absent. Its bit reads TRUE in every sample including at speed - either the car really has a fault or the bit is wrong, and a permanently-lit warning is worse than none.\n\nOIL is the one lamp with confirmed behaviour. ABS, CHARGE and all three fluid flags have never been seen asserted, so they are drawn in their unlit state only."
+      "text": "TYRES - the hero\n\nWCM 21 3B, four bytes, 1 psi per bit, displayed in BAR. Polled in the background even when off-screen, so the card opens populated.\n\nThe SPARE is not in 21 3B - it answers 21 24 on its own and is polled far more slowly. It reads about 0.48 bar, which is either a genuinely flat spare or a sensor that was never paired. Worth a cell rather than a footnote.\n\nThe TARGET line appears ONLY when a road wheel is under 2.1 bar. Printed permanently it is reference material the driver has to compare four numbers against; printed on demand it is the answer. The spare is excluded from that test or it would hold the warning on forever.\n\nByte-to-corner order is still UNMAPPED. The board below is what ships."
     },
     {
-      "id": "trip-note",
+      "id": "health-note",
       "x": 960,
       "y": 360,
       "w": 260,
-      "text": "TRIP\n\nDistance integrates the 0x002 wheel counters at 4cm per count - mean of left and right to cancel cornering. They are 16-bit and wrap every 2.621km, so always mask the delta.\n\nOdometer is broadcast 0x014. FCMCGW 21A3 is unreachable on this car."
+      "text": "HEALTH\n\nCOOLANT and AMBIENT live here now, off DRIVE. Both are temperatures, neither changes fast enough to be worth a glance while moving, and ambient had been decoded from 0x015 and displayed nowhere at all.\n\nMIL is deliberately absent. Its bit reads TRUE in every sample including at speed - either the truck really has a fault or the bit is wrong, and a permanently-lit warning is worse than none.\n\nThe lamp pills are drawn but NOT YET DRIVEN: nothing in the firmware can light them."
     },
     {
-      "id": "tilt-note",
-      "x": 1280,
-      "y": 360,
-      "w": 260,
-      "text": "TILT\n\nThe only screen fed entirely by the onboard IMU - no CAN, no link dependency. It keeps working when the 328 is unplugged.\n\nThe vehicle tilts against a fixed horizon rather than the reverse; that reads correctly at a glance."
-    },
-    {
-      "id": "alert-note",
-      "x": 940,
+      "id": "confirm-note",
+      "x": -640,
       "y": 460,
       "w": 250,
-      "text": "ALERT\n\nDark with red accents, never a red flood - a full red screen at night blinds you.\n\nInterrupts whatever card is showing, latches until dismissed. One 58px target, no way to mis-tap it.\n\nAmber WARN cases get a status-bar banner instead and never take the screen."
+      "text": "RESET CONFIRMATION\n\nA long press asks rather than acts. Resetting is irreversible - there is no undo for a trip, and TRIP A may hold weeks of driving - and a long press is a gesture a thumb resting on the panel over broken tarmac can produce by accident.\n\nIt names the meter, because there are two of them one tap apart, and shows what is about to be lost so a driver who opened it by accident recognises the numbers.\n\nThree ways out, all meaning no: CANCEL, five seconds of being ignored, or a swipe. The shrinking rule is the timeout, drawn rather than spelled out. RESET is the only control on the panel in the critical colour.\n\nIt lives on the ROOT, so the pages keep sliding underneath it - a swipe reads as going somewhere else rather than as fighting a modal."
     },
     {
-      "id": "stale-note",
-      "x": 0,
-      "y": 740,
-      "w": 560,
-      "text": "NO NUMBER LIES ABOUT ITS AGE\n\nATMA delivers only ~61 of ~168 frames/sec, so gaps are normal. Every value past its TTL dims and reverts to dashes rather than silently holding. Nothing here has talked to a real car yet, which makes a frozen-but-plausible number the worst failure mode available - it is the one that gets believed."
+      "id": "unmapped-note",
+      "x": -280,
+      "y": 460,
+      "w": 250,
+      "text": "TYRES, AS SHIPPED\n\n21 3B byte k matches 21 (0x1F+k) in 11 of 11 recorded pairs, so the four bytes are sensors 1..4 in index order - but which physical corner each sensor sits on is unknown, and nothing in the captures reveals it.\n\nNaming them LF/RF/LR/RR would be a guess, and a guess about which tyre is soft is worse than no name at all. Deflating one wheel and watching which value moves is the only way to map them."
     },
     {
       "id": "faults-note",
-      "x": -280,
-      "y": 460,
+      "x": 320,
+      "y": 800,
       "w": 260,
-      "text": "FAULTS\n\nSwipe up from HEALTH; swipe down to return. The chevron footer marks depth, where the peers show dots.\n\nEvery row is real: this is the recorded 16-fault scan of your truck. Active sorts above stored.\n\nDescriptions run 4-72 characters (median 40), so the text box wraps to three lines - U1504 at 67 chars is the worst real case and sets that height.\n\nPCM reports U0114 and U0103 TWICE in one reply, so rows are de-duplicated with a count badge rather than listed twice. There is no pending state on this protocol and no clear path, so the screen is read-only by design."
+      "text": "FAULTS - designed, not built\n\nThere is no vertical axis in the firmware yet, so this screen has no way in.\n\nEvery row is real: this is the recorded 16-fault scan of the truck. Active sorts above stored. PCM reports U0114 and U0103 TWICE in one reply, so rows are de-duplicated with a count badge. There is no pending state on this protocol and no clear path, so the screen is read-only by design."
+    },
+    {
+      "id": "alert-note",
+      "x": 640,
+      "y": 800,
+      "w": 250,
+      "text": "ALERT - designed, not built\n\nDark with red accents, never a red flood - a full red screen at night blinds you.\n\nIntended to interrupt whatever card is showing and latch until dismissed. One 58px target, no way to mis-tap it. Amber WARN cases get a status-bar banner instead and never take the screen.\n\nThis is the gap that matters most: the hero feature exists to catch a falling tyre, and right now there is nothing to catch it with."
+    },
+    {
+      "id": "tilt-note",
+      "x": 960,
+      "y": 800,
+      "w": 260,
+      "text": "TILT - removed\n\nBuilt, then taken out. No IMU is wired, so the card could only ever show dashes - and a permanently empty card teaches the driver to swipe past it, which costs a swipe on every card behind it.\n\nIt comes back when there is something to put on it. The design stands: the vehicle tilts against a fixed horizon rather than the reverse, which reads correctly at a glance."
     },
     {
       "id": "splash-note",
       "x": -320,
-      "y": -150,
+      "y": 360,
       "w": 260,
-      "text": "WELCOME\n\nFades in on ignition, holds, fades out into DRIVE. Budget ~1.9s total: 620ms in, ~900ms hold, 400ms out - long enough to read, short enough not to be in the way when you just want the truck moving.\n\nThe hold is not decorative. At328Link::begin() drains the ROM bootloader noise off IO43 and handshakes with the 328; the splash is what covers that. Hold until the handshake returns, floor the wait at ~900ms so it never flickers past, and ceiling it so a dead link cannot hang the boot.\n\nThe mark is the WK's own face - seven short wide slots in a chrome surround, flanked by wedge headlamps that taper and wrap outboard. Drawn from the 2004 front-view reference, not the Wrangler's upright grille and round lamps. The hood wordmark is deliberately not reproduced."
+      "text": "WELCOME\n\nFades in on ignition, holds, fades out into DRIVE - not into the index-0 card.\n\nThe hold is not decorative. At328Link::begin() drains the ROM bootloader noise off IO43 and handshakes with the 328; the splash is what covers that. Hold until the handshake returns, floor the wait so it never flickers past, and ceiling it so a dead link cannot hang the boot.\n\nThe mark is the WK front end - seven short wide slots in a surround, flanked by lamp clusters. The hood wordmark is deliberately not reproduced."
+    },
+    {
+      "id": "stale-note",
+      "x": -320,
+      "y": 800,
+      "w": 560,
+      "text": "NO NUMBER LIES ABOUT ITS AGE\n\nATMA delivers only about 61 of 168 frames/sec, so gaps are normal. Every value HOLDS its last reading and goes DIM once past its TTL, rather than blinking to dashes on a gap that is entirely routine. Values that were never available, or that a module answered with its all-ones sentinel, show dashes instead - a frozen-but-plausible number is the failure mode that gets believed."
     }
   ],
   "launch": {

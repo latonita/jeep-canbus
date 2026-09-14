@@ -33,6 +33,7 @@ void broadcastClear(BroadcastState& st) {
   st.ignition = IGN_UNKNOWN; st.ignitionMs = 0u;
   st.dimmerRaw = 0u;   st.dimmerMs = 0u;
   st.lightsOn = false; st.lightsMs = 0u;
+  st.flowRaw = 0u;     st.flowMs = 0u;
   st.frames = 0u;      st.decoded = 0u;
 }
 
@@ -76,12 +77,17 @@ bool broadcastApply(BroadcastState& st, const CanFrame& f, uint32_t nowMs) {
       break;
     }
 
-    case 0x014u:              // odometer, tenths of a km in a uint24
+    case 0x014u: {            // odometer, tenths of a km in a uint24
       if (f.len < 3u) return false;
-      st.odometerDm = ((uint32_t)f.data[0] << 16) | ((uint32_t)f.data[1] << 8) |
-                      (uint32_t)f.data[2];
+      const uint32_t odo = ((uint32_t)f.data[0] << 16) | ((uint32_t)f.data[1] << 8) |
+                           (uint32_t)f.data[2];
+      // All-ones is "no value". Left alone it reads as 1 677 721 km and, worse,
+      // would re-anchor every trip to a distance no trip can ever reach.
+      if (odo == 0xFFFFFFu) return false;
+      st.odometerDm = odo;
       st.odometerMs = nowMs;
       break;
+    }
 
     case 0x015u:              // ambient temperature + battery voltage
       if (f.len < 2u) return false;
@@ -125,6 +131,21 @@ bool broadcastApply(BroadcastState& st, const CanFrame& f, uint32_t nowMs) {
       st.dimmerRaw = f.data[1];
       st.dimmerMs = nowMs;
       break;
+
+    case 0x1A7u: {            // instantaneous fuel flow, every 100 ms
+      if (f.len < 2u) return false;
+      const uint16_t q = (uint16_t)((f.data[0] << 8) | f.data[1]);
+      // 0xFFFF is the module saying it has no value. Taken at face value it is
+      // 409 L/h, which would be the single largest lie this decoder could tell.
+      // Rejecting it here leaves flowMs where it was, so the integrator sees a
+      // gap and drops the interval rather than integrating anything at all.
+      if (q == 0xFFFFu) return false;
+      // Zero, by contrast, is REAL: overrun fuel cut-off on a trailing engine
+      // burns nothing, and it has to be integrated as the zero it is.
+      st.flowRaw = q;
+      st.flowMs = nowMs;
+      break;
+    }
 
     case 0x1C8u:              // exterior lights
       if (f.len < 1u) return false;
