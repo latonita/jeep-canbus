@@ -71,6 +71,7 @@ AtServer::AtServer(IByteIo& io, ICanBus& bus)
       nowMs_(0u),
       mfTotal_(0u),
       mfGot_(0u),
+      streamDropped_(0u),
       stUnits_(0u),
       state_(ST_IDLE),
       rxSeen_(0u),
@@ -80,6 +81,7 @@ AtServer::AtServer(IByteIo& io, ICanBus& bus)
       headers_(false),
       autoFormat_(true),
       events_(false),
+      stream_(false),
       skipLf_(false) {
   isoTpFcDefaults(fc_);
 }
@@ -101,7 +103,12 @@ void AtServer::resetDefaults() {
   headers_ = false;
   autoFormat_ = true;
   events_ = false;
+  stream_ = false;
   skipLf_ = false;
+  // streamDropped_ deliberately survives ATZ. It is a diagnostic counter, not
+  // a session setting -- same reasoning as the CAN rx/tx/err counters, which
+  // live in CanDriver and are not touched here either.
+  //
   // Deliberately does NOT re-initialise the CAN controller.
   //
   // ATZ resets the AT layer only. Re-initialising the MCP2515 takes the node
@@ -128,6 +135,9 @@ bool AtServer::idle() const {
 }
 
 void AtServer::safeState() {
+  // The stream is unsolicited output; a board going to a safe state must go
+  // quiet on the link, not keep talking.
+  stream_ = false;
   if (state_ != ST_IDLE) {
     state_ = ST_IDLE;
     mfTotal_ = 0u;
@@ -305,20 +315,74 @@ void AtServer::pumpInput() {
 // ---- CAN frames in ------------------------------------------------------
 
 void AtServer::onFrame(const CanFrame& frame) {
-  if (!frameAccepted(frame)) {
-    return;
-  }
   switch (state_) {
     case ST_MONITOR:
-      writeFrame(frame, true);   // AT MA always shows the id
+      // ATMA is unchanged: filtered, and it blocks rather than drops, because
+      // existing captures and scripts depend on getting everything.
+      if (frameAccepted(frame)) {
+        writeFrame(frame, true);   // AT MA always shows the id
+      }
       break;
-    case ST_COLLECT:
-      noteResponseFrame(frame);
+
+    case ST_COLLECT: {
+      // Which of these two a frame is depends entirely on the filter, and
+      // frameAccepted() matches EVERYTHING when mask_ is 0 -- the state after
+      // ATZ. Unfiltered, a broadcast would be fed to the ISO-TP classifier,
+      // where any frame whose first nibble is 0 reads as a Single Frame and
+      // ends the collect window early; 0x1A7 does exactly that on every
+      // Q < 0x1000. So while streaming, a request without a filter is refused
+      // up front in cmdData() and this cannot arise. Without streaming the old
+      // "no filter means listen to every responder" behaviour is preserved
+      // exactly.
+      const bool isResponse = frameAccepted(frame) && (mask_ != 0u || !stream_);
+      if (isResponse) {
+        noteResponseFrame(frame);
+      } else if (stream_) {
+        streamFrame(frame);
+      }
       break;
+    }
+
     case ST_IDLE:
     default:
-      break;                     // nobody is listening on the link
+      // Classic ELM327 drops these -- nobody is listening at a bare prompt.
+      // With AT@SM1 they are the whole point.
+      if (stream_) {
+        streamFrame(frame);
+      }
+      break;
   }
+}
+
+// One unsolicited frame on the background stream.
+//
+// NON-BLOCKING BY CONTRACT. Deliberately UNFILTERED: ATCF/ATCM/ATCRA belong to
+// request/response matching, and sharing one filter between the two is what
+// forced a host to clear it before every monitor window and reprogram
+// addressing afterwards. The header is always printed regardless of ATH,
+// because a stream nobody can attribute to an id is useless.
+void AtServer::streamFrame(const CanFrame& frame) {
+  const uint8_t len = (frame.len > CAN_MAX_DLC) ? CAN_MAX_DLC : frame.len;
+
+  // Exactly what writeFrame() below is about to emit: 3 id chars, an optional
+  // separating space, the hex bytes, and the terminator.
+  int need = 3 + (spaces_ ? 1 : 0) + (linefeed_ ? 2 : 1);
+  if (len != 0u) {
+    need += spaces_ ? (int)(len * 3u - 1u) : (int)(len * 2u);
+  }
+
+  // Ask before writing rather than writing and blocking. A busy-wait here
+  // stalls loop(), which stops draining the MCP2515's two receive buffers
+  // (about 3 ms of slack at 83.3 kbps) and delays the VES announce the head
+  // unit's AUX source depends on. Losing one frame off a 10 Hz broadcast is
+  // invisible; stalling the car's audio is not.
+  if (io_.writableBytes() < need) {
+    if (streamDropped_ != 0xFFFFu) {
+      ++streamDropped_;            // saturates; AT@ST reports it as SD=
+    }
+    return;
+  }
+  writeFrame(frame, true);
 }
 
 void AtServer::noteResponseFrame(const CanFrame& frame) {
@@ -643,6 +707,24 @@ AtServer::Reply AtServer::cmdCustom(const char* s) {
     return bench_->setBenchMode(flag) ? RP_OK : RP_QUERY;
   }
 
+  // AT@SM1 / AT@SM0 -> background frame stream on / off.
+  // AT@SM           -> query, prints 1 or 0.
+  // Checked after AT@ST: both start with 'S', and after() compares the whole
+  // prefix, so there is no ambiguity either way.
+  a = after(s, PSTR("SM"));
+  if (a != NULL) {
+    if (a[0] == '\0') {
+      io_.writeByte(stream_ ? '1' : '0');
+      writeTerm();
+      return RP_NONE;
+    }
+    if (!onOff(a, flag)) {
+      return RP_QUERY;
+    }
+    stream_ = flag;
+    return RP_OK;
+  }
+
   // AT@VIN            -> query: print the active VIN + "STORED"/"DEFAULT"
   // AT@VIN<chars>     -> store that VIN in EEPROM (used by bench mode)
   // AT@VIN-           -> remove the stored VIN, revert to the compiled default
@@ -757,6 +839,15 @@ AtServer::Reply AtServer::statusLine() {
   (void)atFormatDec(info.reinits, num, sizeof(num));
   io_.writeBytes(num);
 
+  // Stream state, and what it has had to throw away. SD= must stay 0; a
+  // non-zero value means the TX ring filled and frames were dropped rather
+  // than blocking -- raise SERIAL_TX_BUFFER_SIZE (see platformio.ini).
+  writeP(PSTR(" SM="));
+  io_.writeByte(stream_ ? '1' : '0');
+  writeP(PSTR(" SD="));
+  (void)atFormatDec(streamDropped_, num, sizeof(num));
+  io_.writeBytes(num);
+
   writeTerm();
   return RP_NONE;
 }
@@ -764,6 +855,14 @@ AtServer::Reply AtServer::statusLine() {
 AtServer::Reply AtServer::cmdData(const char* s) {
   uint8_t buf[CAN_MAX_DLC];
   uint8_t n = 0u;
+
+  // While streaming, the filter is the ONLY thing separating a response from
+  // the broadcast traffic flowing past it, so a request without one cannot be
+  // collected. Say so, rather than silently mis-attributing whatever arrives
+  // first -- see the comment in onFrame(). ATCRA (or ATCF+ATCM) first.
+  if (stream_ && mask_ == 0u) {
+    return RP_QUERY;
+  }
   if (atParseHexBytes(s, buf, CAN_MAX_DLC, n) != AT_HEX_OK || n == 0u) {
     return RP_QUERY;                     // odd digits, junk, or over 8 bytes
   }

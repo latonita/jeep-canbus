@@ -16,6 +16,19 @@ class IByteIo {
 
   virtual void writeByte(char c) = 0;
 
+  // Room left in the transmit buffer, in bytes.
+  //
+  // The background frame stream (AT@SM) uses this to decide whether a line
+  // FITS before it starts writing one, because on that path a blocking write
+  // is worse than a lost frame: stalling here stalls the main loop, which
+  // overflows the MCP2515's two receive buffers and delays the VES announce
+  // the car's audio depends on.
+  //
+  // The default answers "enough for anything", which is right for a host-test
+  // fake and for any implementation that cannot block. Only the real UART
+  // needs to override it.
+  virtual int writableBytes() const { return 0x7FFF; }
+
  protected:
   // Non-virtual and protected, matching ICanBus: the implementation lives in
   // static storage for the whole program and a virtual dtor would pull in

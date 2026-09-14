@@ -12,6 +12,21 @@
 // deadline and returns immediately, so the VES/BT modules and the CAN drain in
 // main.cpp keep running while a module is answering.
 //
+// ---- stream mode (AT@SM, 2.1) --------------------------------------------
+// Classic ELM327 is half duplex by convention, not by necessity: an idle
+// adapter is silent, and ATMA streams only until a character arrives, so a
+// host that wants both broadcasts and requests has to alternate between them
+// and goes deaf for the whole request phase.
+//
+// Nothing on the wire requires that. main.cpp already drains every frame and
+// hands it here on every loop iteration, and the MCP2515's hardware masks are
+// wide open for the life of the firmware. AT@SM1 simply stops throwing the
+// idle ones away: frames are printed continuously, in the background, INCLUDING
+// while a request is collecting its response. The measured bus load is about
+// 151 frames/s, near 2.5 kB/s with ATS0, about 22% of the 115200 link.
+//
+// The stream is a flag rather than a State on purpose -- see idle() below.
+//
 // ---- RAM budget ----------------------------------------------------------
 // Of the 2048 bytes: HardwareSerial buffers 128, SoftwareSerial 64, stack
 // ~350. One AtServer is 102 bytes of static data on AVR (no padding, 2-byte
@@ -24,7 +39,8 @@
 //   header/filter/mask  6
 //   mfTotal_/mfGot_ 4
 //   stUnits_/state_/rxSeen_  3
-//   7 bool flags    7
+//   streamDropped_  2  AT@SM frames lost to a full TX ring
+//   8 bool flags    8
 //   vtable pointer  2  (IEventSink)
 // Nothing else is buffered: response frames are formatted straight out to the
 // link. The largest transients are stack-only -- a 25-byte hex buffer in
@@ -79,6 +95,11 @@ class AtServer : public IEventSink {
   // uses this to defer its SoftwareSerial writes: SoftwareSerial disables
   // interrupts while shifting bits out and would corrupt bytes arriving on
   // the hardware UART.
+  //
+  // THIS IS WHY STREAM MODE IS A FLAG AND NOT A State. A fourth state would
+  // make idle() false for as long as streaming is on, BtControl would defer
+  // its writes forever, and the steering-wheel buttons would stop working --
+  // which on the bench looks exactly like a hardware fault.
   bool idle() const;
 
   // Abort anything in flight and leave the link at a prompt. Called from the
@@ -117,6 +138,7 @@ class AtServer : public IEventSink {
   void writeReply(Reply r);
   void writePrompt();
   void writeFrame(const CanFrame& frame, bool forceHeader);
+  void streamFrame(const CanFrame& frame);     // AT@SM, never blocks
 
   // ---- input ----
   void pumpInput();
@@ -150,6 +172,8 @@ class AtServer : public IEventSink {
   uint16_t mfTotal_;     // FF_DL of the reply being collected
   uint16_t mfGot_;       // payload bytes seen so far
 
+  uint16_t streamDropped_;  // AT@SM frames dropped, no TX room (saturating)
+
   uint8_t  stUnits_;     // ATST, 0 = use AT_RESP_TIMEOUT_MS
   State    state_;
   uint8_t  rxSeen_;      // frames printed for the current request (saturating)
@@ -160,5 +184,6 @@ class AtServer : public IEventSink {
   bool headers_;         // ATH
   bool autoFormat_;      // ATCAF
   bool events_;          // AT@EV
+  bool stream_;          // AT@SM -- a flag, NOT a State; see idle()
   bool skipLf_;          // last input byte was CR: swallow one LF
 };

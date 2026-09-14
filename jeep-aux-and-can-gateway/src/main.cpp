@@ -71,6 +71,10 @@ class SerialByteIo : public IByteIo {
   }
 
   void writeByte(char c) override { Serial.write(c); }
+
+  // Free space in the TX ring. HardwareSerial::write() busy-waits once the
+  // ring is full, so the stream path asks first and drops instead.
+  int writableBytes() const override { return Serial.availableForWrite(); }
 };
 
 // BtControl defers its SoftwareSerial writes until the link is quiet, because

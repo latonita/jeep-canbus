@@ -145,6 +145,12 @@ Because matching is software-side, `ATMA` shows genuinely everything on the bus 
 filter is set -- including the frames this board transmits itself and the traffic its own
 VES/AUX and button logic is reacting to.
 
+`ATMA` is unchanged in 2.1 and stays the interactive way to watch the bus. It is a *mode*,
+though: it obeys the shared filter, it ends as soon as any character arrives, and while it
+runs you cannot send a request. When you want broadcasts and request/response traffic at
+the same time, use [`AT@SM1`](#10-stream-mode-atsm) instead -- it prints received frames in
+the background, unfiltered, without taking over the link.
+
 ### Transmitting
 
 | Input | Meaning |
@@ -155,13 +161,15 @@ VES/AUX and button logic is reacting to.
 
 | Command | Meaning |
 |---|---|
-| `AT@ST` | Print adapter status: firmware version, CAN health, rx/tx/err counters, current header and filter, feature flags, bench state. |
+| `AT@ST` | Print adapter status: firmware version, CAN health, rx/tx/err counters, current header and filter, feature flags, bench state, stream state and the dropped-stream-frame counter `SD=` (see [section 10](#10-stream-mode-atsm)). |
 | `AT@EV1` / `AT@EV0` | Enable / disable asynchronous event lines from the autonomous modules. This is the replacement for print debugging. |
 | `AT@BENCH1` / `AT@BENCH0` | Turn bench mode on / off at runtime. Bench mode fakes ignition on `0x000` and, **if a VIN is set** ([`AT@VIN`](#9-provisioning-the-vin-atvin)), broadcasts it on `0x01B` so a desk radio powers up without demanding its anti-theft code; it listens 2 s first and stays silent if it hears real bus traffic. See [section 8](#8-the-at-surface-is-observe-only). |
 | `AT@I` | Print the **true** identity of the board, whatever `ATI` has been set to report. |
 | `AT@VIN` | Query the VIN bench mode broadcasts: prints `<vin> STORED`, `<vin> DEFAULT`, or `NONE` if no VIN is set. |
 | `AT@VIN`_`<vin>`_ | Store a VIN (1..21 printable chars; a real VIN is 17) in EEPROM. Used by bench mode from then on, across reboots. |
 | `AT@VIN-` | Remove the stored VIN. With none set, bench mode sends power-on only (no VIN frames). |
+| `AT@SM1` / `AT@SM0` | Stream mode on / off (new in 2.1): print every received frame continuously in the background, unfiltered and always with its header, alongside normal command traffic. Default **off**; `ATZ` restores off. See [section 10](#10-stream-mode-atsm). |
+| `AT@SM` | Print the current stream-mode state, `1` or `0`. |
 
 Event lines are printed asynchronously and are prefixed so a host parser can tell them
 apart from command responses:
@@ -387,3 +395,84 @@ OK
 The 3-frame `0x01B` encoding (index byte + 7 chars, zero-padded) is unchanged; only the
 source of the characters moved from a `#define` to EEPROM. Host-side, `scripts/send_frame.py`
 and `scripts/bench_vin_test.py` can still replay these frames directly for bench testing.
+
+---
+
+## 10. Stream mode (`AT@SM`)
+
+Until 2.1, `ATMA` was the only way to see broadcast traffic, and `ATMA` is a *mode*: it
+holds the link until a character arrives, and while it runs no request can be sent. A host
+that wants both -- live broadcasts *and* request/response probing -- has to alternate:
+clear the filter, enter `ATMA`, collect a window, break out with a keystroke, reprogram
+`ATSH`/`ATCRA`, send its requests, then start over. Broadcasts are lost for the whole
+request burst, and the addressing is reprogrammed twice per cycle purely to work around a
+filter that monitoring and requests were sharing.
+
+Stream mode removes the alternation.
+
+| Command | Meaning |
+|---|---|
+| `AT@SM1` | Stream mode on. |
+| `AT@SM0` | Stream mode off. |
+| `AT@SM` | Print the current state, `1` or `0`. |
+
+Default is **off**, and `ATZ` restores off -- it is part of `resetDefaults`, like echo and
+headers. So a fresh session is always classic ELM327 behaviour, and an existing tool that
+has never heard of `AT@SM` cannot be surprised by a frame it did not ask for. The
+supervisor's safe-state path clears stream mode too.
+
+With stream mode on, **every** received CAN frame is printed as it arrives: while the
+adapter sits idle at the prompt, and also while it is collecting the response to a request.
+Unlike `ATMA` it does not stop when a character arrives -- only `AT@SM0`, `ATZ` or safe
+state turn it off.
+
+Three properties differ from `ATMA`, each of them deliberate.
+
+**Streamed frames are not filtered.** `ATCF`/`ATCM`/`ATCRA` keep applying to
+request/response matching and have no effect on the stream. One filter shared between
+monitoring and requests is exactly what forced the old host into the clear-monitor-restore
+dance above; with the two separated, a host can hold `ATCRA 514` for its probing and still
+watch the entire bus at the same time.
+
+**Streamed frames always carry the header**, whatever `ATH0`/`ATH1` says. A stream you
+cannot attribute to an id is useless, and `ATH` exists for request responses, where the
+host already knows what it asked. Keeping `ATH0` for compact responses therefore costs
+nothing in the stream.
+
+**The stream never blocks.** If the UART transmit buffer has no room for the whole line,
+the frame is **dropped** and a counter incremented; the adapter does not wait for space.
+Blocking would stall the board's main loop, the MCP2515's two receive buffers would
+overflow, and the VES/AUX announce the car's audio depends on would be delayed -- so one
+dropped diagnostic frame is strictly better than a stalled loop. The counter is reported by
+`AT@ST` as `SD=`. If it climbs, the host is not draining the port fast enough; that is a
+host problem, and the adapter has already chosen the car over the diagnostic.
+
+### Bandwidth
+
+The interior bus carries about **151 frames/s** with the engine running. With `ATS0` that
+is roughly **2.5 kB/s**, about **22 %** of the 115200 baud link. The stream has ample
+headroom; `SD=` staying at zero over a long session is the expected result, not a lucky
+one.
+
+### Host side: demultiplexing the line stream
+
+With stream mode on, the port carries two interleaved things -- frames and command replies
+-- and the host has to tell them apart. Set `ATS0` and `ATL0` first; then the rule is
+purely lexical:
+
+| A line is a **frame** when | A line is a **command reply** when |
+|---|---|
+| it is pure hex, contains no space, and has an **odd** number of characters | it contains a space, starts with `@`, is not pure hex, or has an **even** number of characters |
+
+The odd length is not a heuristic: a frame line is 3 id nibbles plus 2 nibbles per data
+byte, so its length is always odd (3 for a zero-length frame, then 5, 7 ... 19), while `OK`, `NO DATA`, `AT@EV ...` and
+the `AT@ST` fields are none of those shapes. `?` and the `>` prompt are single characters
+and not hex.
+
+One trap worth knowing: **ignore streamed frames whose id equals your own `ATSH` transmit
+header.** The adapter auto-sends the ISO-TP Flow Control frame ([section 6](#6-flow-control))
+on the bus, the stream shows it like any other frame, and a host that does not skip it will
+see its own flow control come back as if a module had sent it.
+
+Stream mode does not change `ATMA`, which still works exactly as before for interactive use
+and for scripts that already depend on it.
