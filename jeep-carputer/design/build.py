@@ -10,7 +10,7 @@ must not shift when the rest of the instrument does.
 import io, json, re
 
 # Swipe order first, then the boards that are not on the swipe axis.
-SCREENS = ["Splash.dc.html", "Trip.dc.html", "Main.dc.html", "Tyres.dc.html", "Health.dc.html",
+SCREENS = ["Splash.dc.html", "Main.dc.html", "Trip.dc.html", "Tyres.dc.html", "Health.dc.html",
            "Settings.dc.html", "ConfirmReset.dc.html", "TyresUnmapped.dc.html", "Faults.dc.html",
            "Alert.dc.html", "Tilt.dc.html"]
 

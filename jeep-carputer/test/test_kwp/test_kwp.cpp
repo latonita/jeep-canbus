@@ -150,6 +150,100 @@ TEST_MAIN_BEGIN()
   }
 }
 
+// ------------------------------------------------------------ clear one DTC
+// The builder. Codes are the RAW two bytes a module reported, never SAE text:
+// 0x213A is P213A, and 0x3A has no decimal or BCD spelling, so that pair is the
+// one that catches a formatter creeping into the request path.
+{
+  uint8_t buf[8];
+
+  memset(buf, 0xCCu, sizeof(buf));
+  CHECK_EQ(kwpBuildClearDtc(0x0119u, buf, sizeof(buf)), 3);
+  CHECK_EQ(buf[0], KWP_SVC_CLEAR_DTC);
+  CHECK_EQ(buf[0], 0x14);
+  CHECK_EQ(buf[1], 0x01);
+  CHECK_EQ(buf[2], 0x19);
+  CHECK_EQ(buf[3], 0xCC);  // nothing beyond the declared length was touched
+
+  memset(buf, 0xCCu, sizeof(buf));
+  CHECK_EQ(kwpBuildClearDtc(0x213Au, buf, sizeof(buf)), 3);
+  CHECK_EQ(buf[0], 0x14);
+  CHECK_EQ(buf[1], 0x21);
+  CHECK_EQ(buf[2], 0x3A);
+  CHECK_EQ(buf[3], 0xCC);
+
+  // Boundaries. Three bytes are the whole PDU, so a cap of 2 must refuse rather
+  // than emit a half request; a NULL out must be rejected before anything is
+  // dereferenced, cap or no cap.
+  CHECK_EQ(kwpBuildClearDtc(0x0119u, buf, 3u), 3);
+  CHECK_EQ(kwpBuildClearDtc(0x0119u, buf, 2u), 0);
+  CHECK_EQ(kwpBuildClearDtc(0x0119u, buf, 0u), 0);
+  CHECK_EQ(kwpBuildClearDtc(0x0119u, 0, 8u), 0);
+
+  // Every code the real all-module scan produced, taken from the fixture rather
+  // than typed in, so the clear request cannot drift away from the read path
+  // that supplies the code.
+  for (uint8_t i = 0; i < DTC_SCAN_RECORD_COUNT; ++i) {
+    const uint16_t code = kDtcScanRecords[i].code;
+    CHECK_EQ(kwpBuildClearDtc(code, buf, sizeof(buf)), 3);
+    CHECK_MSG(buf[0] == 0x14u && buf[1] == (uint8_t)(code >> 8) &&
+                  buf[2] == (uint8_t)(code & 0xFFu),
+              "%s %s: built %02X %02X %02X for code 0x%04X",
+              kDtcScanRecords[i].module, kDtcScanRecords[i].sae, (unsigned)buf[0],
+              (unsigned)buf[1], (unsigned)buf[2], (unsigned)code);
+  }
+}
+
+// Classifying a 0x14 reply. This half was ALREADY generic: kwpParseResponse
+// compares response[0] against request[0] + 0x40 and echo-checks negatives, so
+// 0x54 works without the function knowing 0x14 exists. Pinned here because
+// "happens to work" and "is guaranteed to work" only look alike until somebody
+// special-cases a service.
+{
+  IsoTpPdu pdu;
+  KwpResponse resp;
+  uint8_t req[8];
+  const uint8_t reqLen = kwpBuildClearDtc(0x213Au, req, sizeof(req));
+  CHECK_EQ(reqLen, 3);
+
+  // The positive response to 0x14 is a bare `54`: no data, nothing to echo, and
+  // shorter than any reply the existing services produce.
+  const uint8_t pos[1] = {0x54u};
+  setPdu(pdu, pos, 1u);
+  CHECK_EQ(kwpParseResponse(req, reqLen, pdu, resp), KWP_OK);
+  CHECK_EQ(resp.service, 0x54);
+  CHECK_EQ(resp.len, 1);
+  CHECK_EQ(resp.data, pdu.data);  // aliases the caller's PDU, never a copy
+
+  // `7F 14 22` conditionsNotCorrect -- the refusal this request is most likely
+  // to meet, since nothing proves these modules accept 0x14 at all. It has to
+  // arrive as a readable NRC, not as a parse failure, or the one piece of
+  // evidence that would settle the question is thrown away.
+  const uint8_t neg[3] = {0x7Fu, 0x14u, 0x22u};
+  setPdu(pdu, neg, 3u);
+  CHECK_EQ(kwpParseResponse(req, reqLen, pdu, resp), KWP_NEGATIVE);
+  CHECK_EQ(resp.service, 0x14);
+  CHECK_EQ(resp.nrc, 0x22);
+
+  // A reply for the wrong service is rejected. `58 00` is 0x18's answer, and
+  // the scan and the clear share one link, so a late read reply landing inside
+  // a clear transaction must never read as "cleared".
+  const uint8_t other[2] = {0x58u, 0x00u};
+  setPdu(pdu, other, 2u);
+  CHECK_EQ(kwpParseResponse(req, reqLen, pdu, resp), KWP_WRONG_SERVICE);
+  CHECK_EQ(resp.service, 0x58);
+
+  // ... including the off-by-one that echoes the request back unshifted.
+  const uint8_t echoed[1] = {0x14u};
+  setPdu(pdu, echoed, 1u);
+  CHECK_EQ(kwpParseResponse(req, reqLen, pdu, resp), KWP_WRONG_SERVICE);
+
+  // ... and a negative that names somebody else's service.
+  const uint8_t negOther[3] = {0x7Fu, 0x18u, 0x22u};
+  setPdu(pdu, negOther, 3u);
+  CHECK_EQ(kwpParseResponse(req, reqLen, pdu, resp), KWP_WRONG_SERVICE);
+}
+
 // ------------------------------------------- every recorded reply, classified
 {
   // The recorded reply for a `21 xx` / `1A xx` / `18 ..` request must classify

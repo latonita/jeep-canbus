@@ -39,10 +39,40 @@ void tripUpdate(TripSet& s, const BroadcastState& bc, uint32_t nowMs) {
   // 0x014 frame lands, so this is "is there a new odometer reading", not "has
   // the value changed" -- a car standing still reports the same value over and
   // over and must not re-anchor a trip on each one.
+  // Is the engine actually running? A stale rpm is treated as NOT running, the
+  // same way a stale speed is treated as stopped below: if the bus has gone
+  // quiet we do not know the engine is turning, and a trip that keeps counting
+  // on a silent bus is the failure nobody notices until the numbers are wrong.
+  // THREE states, not two, and the third is why this is not one boolean.
+  //
+  //   running    -- rpm is live and above idle-crank. Everything accumulates.
+  //   engineOff  -- rpm is live and BELOW it. We positively know the engine is
+  //                 stopped, so the clock pauses and the odometer anchor is
+  //                 carried forward, costing the trip the distance too.
+  //   neither    -- rpm is STALE. We know nothing. The clock pauses, but the
+  //                 anchor is LEFT ALONE.
+  //
+  // That last distinction matters more than it looks. Treating a stale rpm as
+  // engine-off would mean a link dropout while driving silently deletes the
+  // kilometres covered during it -- the anchor would walk forward and the
+  // distance would simply never appear. Pausing the clock is recoverable and
+  // visible; destroying distance is neither.
+  const bool rpmLive = (bc.rpmMs != 0u) && ((nowMs - bc.rpmMs) < 5000u);
+  const bool running = rpmLive && (bc.rpm >= TRIP_RUNNING_RPM);
+  const bool engineOff = rpmLive && (bc.rpm < TRIP_RUNNING_RPM);
+
   if (bc.odometerMs != 0u && bc.odometerMs != s.lastOdoStampMs) {
     s.lastOdoStampMs = bc.odometerMs;
     for (uint8_t i = 0u; i < TRIP_COUNT; ++i) {
       Trip& t = s.t[i];
+      // Engine off: carry the ANCHOR forward by the same amount the odometer
+      // moved, so the distance lands nowhere. A car rolled, towed or pushed
+      // with the engine off has no fuel behind its kilometres, and counting
+      // them would drag L/100 down by an amount nobody could account for.
+      if (engineOff && t.odoStartDm != 0u && t.odoNowDm != 0u &&
+          bc.odometerDm > t.odoNowDm) {
+        t.odoStartDm += (bc.odometerDm - t.odoNowDm);
+      }
       t.odoNowDm = bc.odometerDm;
       if (t.odoStartDm == 0u || t.odoStartDm > bc.odometerDm) {
         // Unanchored, or the odometer went backwards (a restored trip from a
@@ -62,6 +92,18 @@ void tripUpdate(TripSet& s, const BroadcastState& bc, uint32_t nowMs) {
     dt = TRIP_MAX_GAP_MS;
   }
   s.lastTickMs = nowMs;
+
+  // NOTHING accumulates while the engine is not turning. The case this exists
+  // for is the ignition on with the engine off -- accessory, or sitting with
+  // the radio playing. The bus is alive and broadcasting, so without this a
+  // trip racks up elapsed time for as long as anyone sits there, and FROM
+  // START reports a journey mostly made of not driving.
+  //
+  // After lastTickMs is updated, so the pause does not arrive as one huge dt
+  // the moment the engine starts again.
+  if (!running) {
+    return;
+  }
 
   // Moving vs stopped comes from the last live speed reading. A stale one is
   // treated as stopped: if the bus has gone quiet we do not know the car is
@@ -157,4 +199,15 @@ float tripAvgKph(const Trip& t) {
     return -1.0f;
   }
   return km * 3600000.0f / (float)t.movingMs;
+}
+
+float tripCost(const Trip& t, float pricePerLitre) {
+  if (pricePerLitre <= 0.0f) {
+    return -1.0f;
+  }
+  const float litres = tripLitres(t);
+  if (litres < 0.0f) {
+    return -1.0f;
+  }
+  return litres * pricePerLitre;
 }

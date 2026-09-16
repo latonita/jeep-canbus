@@ -56,6 +56,9 @@ struct BroadcastState {
   bool     lightsOn;        // 0x1C8 byte 0 == 0x02
   uint8_t  lightsRaw;       // the byte itself, so a wrong guess shows in the log
   uint8_t  dimmerByte0;     // 0x210 byte 0; 0x03 in every recorded sample
+
+  uint8_t  pedalRaw;        // 0x2C0 byte 2, as sent
+  uint32_t pedalMs;
   uint32_t lightsMs;
 
   // Instantaneous fuel flow from 0x1A7, raw: L/h = flowRaw / 160. The 0xFFFF
@@ -103,3 +106,46 @@ bool broadcastApply(BroadcastState& st, const CanFrame& f, uint32_t nowMs);
 // 0x1C8 loses nothing.
 uint16_t broadcastBacklightPermille(uint8_t dimmerRaw, bool haveSignal,
                                     bool lightsOn, bool haveLights);
+
+// ---- Accelerator pedal, 0x2C0 byte 2 --------------------------------------
+//
+// A dual-track APPS relayed onto CAN-B at 100 ms. Byte 2 is track one, byte 3
+// its half-scale partner and byte 6 a byte-identical copy of byte 2 -- the
+// usual three-way redundancy for a safety signal. Bytes 0, 1 and 5 are always
+// 0xFF and carry nothing.
+//
+// The two ends are ANCHORED, not guessed. 0x17 is proven by a hardware idle
+// switch: across 3767 capture frames with bit 2 or 3 of byte 7 set, byte 2 was
+// exactly 0x17 every single time, no exceptions. The top is the KICKDOWN
+// DETENT -- the hump you can feel underfoot, past which the box downshifts.
+//
+// And the capture shows the detent rather than merely implying it. Between
+// 0xC0 and 0xE9 there is NOTHING: not one frame in 8089. The pedal sweeps up
+// to the hump (single frames at 0xB6, 0xBF on the way through) and then the
+// travel past it is fast enough that it is only ever observed at rest on the
+// floor, 54 consecutive frames at 0xEA through a 1509-4158 rpm pull. You do
+// not sit in the detent; you are either short of it or through it.
+//
+// That makes kickdown a genuinely BINARY, driver-intentional event, which is
+// worth far more than a percentage: it cannot be reached by accident and needs
+// no calibration to interpret.
+// How long a pedal reading stays usable. 0x2C0 is a 100 ms frame, so five
+// missed ones is not a live pedal.
+//
+// This matters more than it looks. pedalRaw is HELD when the frame stops --
+// every value on this instrument is -- and the kickdown flag is now what
+// ARMS an acceleration run rather than what decorates one. A held 0xEA would
+// confirm the launch of every pull-away for as long as the signal stayed away:
+// frozen, plausible, and wrong, which is the one failure mode this project is
+// built around. Callers gate on this before feeding accelPedal().
+#define BC_PEDAL_TTL_MS 500u
+
+#define BC_PEDAL_RELEASED 0x17u   // hardware idle switch agrees, 3767/3767
+#define BC_PEDAL_DETENT   0xC0u   // the hump underfoot
+#define BC_PEDAL_KICKDOWN 0xDFu   // through it; only 0xEA is ever seen above
+#define BC_PEDAL_FLOORED  0xEAu   // the floor, held flat under full throttle
+
+// 0..100. Clamped, because the top anchor comes from one wide-open run in a
+// 2015 capture and this car has never been logged past 0x37 -- a sweep in Park
+// would pin it properly.
+uint8_t broadcastPedalPercent(uint8_t raw);

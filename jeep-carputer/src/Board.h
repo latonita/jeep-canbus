@@ -82,6 +82,21 @@
 #define LCD_H_RES        240
 #define LCD_V_RES        320
 #define LCD_PCLK_HZ      (80 * 1000 * 1000)
+
+// Rows per LVGL flush chunk, and the SPI transfer ceiling that must cover it.
+//
+// These live together because they were once apart and silently disagreed:
+// Display.cpp sized the SPI bus from its own FILL_ROWS (40 -> 19200 bytes)
+// while LVGL was handing it 48-row chunks (23040 bytes). esp_lcd quietly split
+// every single flush into TWO DMA transactions with an extra interrupt, all
+// frame, for the life of the project. Nothing failed, so nothing said so.
+//
+// 80 rows rather than 48: a full screen is then 4 transfers instead of 14, and
+// each one costs a queue round trip plus the synchronous drain that esp_lcd
+// does on every CASET/RASET. Two buffers of 240 x 80 x 2 is 77 KB of internal
+// DMA RAM against ~240 KB free.
+#define LCD_DRAW_ROWS    80
+#define LCD_MAX_TRANSFER_SZ (LCD_H_RES * LCD_DRAW_ROWS * 2)
 // From Waveshare's own init: colour inverted (raw 0x21 INVON),
 // mirror(true, false), no gap, BGR element order.
 

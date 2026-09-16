@@ -98,6 +98,39 @@ uint8_t kwpBuildReadDtc(uint8_t* out, uint8_t cap) {
   return 4u;
 }
 
+uint8_t kwpBuildClearDtc(uint16_t code, uint8_t* out, uint8_t cap) {
+  if (out == 0 || cap < 3u) {
+    return 0u;
+  }
+  // `14 <hi> <lo>` = clearDiagnosticInformation, groupOfDTC = this one code.
+  // The code is emitted big-endian and completely unmodified -- the same two
+  // bytes the module handed back in its `58` record, never the SAE rendering --
+  // because a group is matched on the raw value and kwpDtcToSae is a display
+  // concern. Getting that backwards would send `14 02 13` for P213A and clear
+  // either nothing or the wrong thing.
+  //
+  // Why the single-DTC form rather than the all-groups `14 FF 00`: this car
+  // carries faults that are permanent and known, and wiping a module's entire
+  // memory to be rid of one code destroys the very history that makes a
+  // genuinely new fault noticeable.
+  //
+  // NOT VERIFIED against this vehicle. A specific code in the group field is
+  // what standard KWP2000 defines as the single-DTC form, but no request with
+  // service 0x14 occurs anywhere in the capture, so this is an inference and is
+  // labelled as one: these modules may honour only the all-groups form, may
+  // ignore the group field and clear everything regardless, or may refuse 0x14
+  // outside a started diagnostic session -- every read path on this car needs
+  // no session, which tells us nothing about a write. The NRC of the first real
+  // attempt is what settles it.
+  //
+  // A caller passing 0xFF00 does build the all-groups form: the two are the
+  // same three bytes on the wire and nothing here pretends to tell them apart.
+  out[0] = KWP_SVC_CLEAR_DTC;
+  out[1] = (uint8_t)(code >> 8);
+  out[2] = (uint8_t)(code & 0xFFu);
+  return 3u;
+}
+
 // ---- response classification ----------------------------------------------
 
 KwpStatus kwpParseResponse(const uint8_t* request, uint8_t requestLen,

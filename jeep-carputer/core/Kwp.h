@@ -11,6 +11,7 @@
 #include "IsoTp.h"
 
 // Services we use.
+#define KWP_SVC_CLEAR_DTC       0x14u  // clearDiagnosticInformation
 #define KWP_SVC_READ_DTC        0x18u  // readDiagnosticTroubleCodesByStatus
 #define KWP_SVC_READ_ECU_IDENT  0x1Au  // readEcuIdentification
 #define KWP_SVC_READ_LOCAL_ID   0x21u  // readDataByLocalIdentifier
@@ -41,6 +42,20 @@ struct KwpResponse {
 uint8_t kwpBuildReadLocalId(uint16_t localId, uint8_t* out, uint8_t cap);
 uint8_t kwpBuildReadEcuIdent(uint8_t option, uint8_t* out, uint8_t cap);
 uint8_t kwpBuildReadDtc(uint8_t* out, uint8_t cap);   // 18 00 FF 00, all groups
+
+// Clear ONE stored code: `14 <code_hi> <code_lo>` -- clearDiagnosticInformation
+// with that raw code standing in the two-byte groupOfDTC field. `14 FF 00` is
+// the all-groups form that wipes a module's whole fault memory; naming a single
+// group is how KWP2000 says "only this one", and it is the only form this car
+// can use, because it carries permanent known faults that clearing everything
+// would destroy along with the one code actually being dismissed.
+//
+// UNVERIFIED on this vehicle: service 0x14 appears nowhere in the capture, so
+// these modules may honour only the all-groups form, may ignore the group field
+// and clear the lot anyway, or may reject 0x14 outside a started diagnostic
+// session. Every read path here needs no session, which says nothing about a
+// write. Expect a KWP_NEGATIVE and read it as the answer, not as a bug.
+uint8_t kwpBuildClearDtc(uint16_t code, uint8_t* out, uint8_t cap);
 
 // Classify a reassembled reply against the request that produced it.
 KwpStatus kwpParseResponse(const uint8_t* request, uint8_t requestLen,

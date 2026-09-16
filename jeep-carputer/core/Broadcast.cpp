@@ -155,6 +155,23 @@ bool broadcastApply(BroadcastState& st, const CanFrame& f, uint32_t nowMs) {
       break;
     }
 
+    case 0x2C0u: {            // accelerator pedal, every 100 ms
+      if (f.len < 8u) return false;
+      // REJECT THE ENGINE-OFF SENTINEL. With the engine stopped this frame is
+      // all 0xFF but for a trailing 0x00, and byte 2 of that reads as a pedal
+      // pressed harder than the floor -- comfortably the worst lie this
+      // decoder could tell. Bit 7 of byte 7 is the engine-running flag (set
+      // across 7624 capture frames at 569-4158 rpm, clear across 335 at 0-1039)
+      // and the redundant copy in byte 6 must agree with byte 2.
+      if ((f.data[7] & 0x80u) == 0u || f.data[2] != f.data[6] ||
+          f.data[2] == 0xFFu) {
+        return false;
+      }
+      st.pedalRaw = f.data[2];
+      st.pedalMs = nowMs;
+      break;
+    }
+
     case 0x1C8u:              // exterior lights
       // Restored: it is the only signal separating "wheel wound down" from
       // "lights off", and without it the panel goes dark in broad daylight.
@@ -211,4 +228,15 @@ uint16_t broadcastBacklightPermille(uint8_t dimmerRaw, bool haveSignal,
   const uint32_t curved = (n * n) / 1000u;              // 0..1000, square law
   const uint32_t span = NIGHT_MAX_PM - NIGHT_MIN_PM;
   return (uint16_t)(NIGHT_MIN_PM + (curved * span) / 1000u);
+}
+
+uint8_t broadcastPedalPercent(uint8_t raw) {
+  if (raw <= BC_PEDAL_RELEASED) {
+    return 0u;
+  }
+  if (raw >= BC_PEDAL_FLOORED) {
+    return 100u;
+  }
+  const uint32_t span = (uint32_t)(BC_PEDAL_FLOORED - BC_PEDAL_RELEASED);
+  return (uint8_t)(((uint32_t)(raw - BC_PEDAL_RELEASED) * 100u + span / 2u) / span);
 }

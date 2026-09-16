@@ -30,3 +30,51 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
 CONFIG_COMPILER_WARN_WRITE_STRINGS=y
+
+# ---- Render speed -------------------------------------------------------
+#
+# A full-screen frame measured 65 ms, of which only 15 ms is the SPI link at
+# 80 MHz -- the other 50 ms is the memory system, not draw maths. A scroll
+# frame walks LVGL's whole refresh/blend/mask path plus 69 KB of uncompressed
+# 4 bpp glyph data, all executed and read straight out of flash.
+#
+# Idle frames are 4.5 ms because one small label stays cache-resident. That
+# cliff is the tell: it is cache misses, not pixels.
+CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
+
+# Flash in QIO rather than DIO: 4 data lines instead of 2, ~40 MB/s instead of
+# ~20. The glyph bitmaps are 69 KB of uncompressed 4 bpp .rodata re-streamed
+# from flash on every full-screen frame, so the fill rate is felt directly.
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+
+# The SPI master's transmit functions in IRAM, not just its ISR. A full-screen
+# frame queues one transaction per flush chunk and drains the queue on every
+# CASET/RASET, so this path is walked several times a frame -- and it was being
+# fetched from flash each time.
+CONFIG_SPI_MASTER_IN_IRAM=y
+
+# NOT the 32 KB instruction cache. It links and it flashes and then the board
+# BOOT LOOPS -- silently, because the console is native USB-Serial-JTAG, so
+# each reset tears the port down before anything can print. The cache is carved
+# out of internal SRAM at startup, so this is a failure that cannot show up at
+# link time. Measured, reverted, and left here as a warning: if the render is
+# ever short of memory bandwidth again, this is not the lever.
+
+# ONE software draw unit, not two.
+#
+# LVGL creates its draw threads with plain xTaskCreate -- no affinity -- at
+# CONFIG_LV_DRAW_THREAD_PRIO (3), which is BELOW carTask's 5 on core 0. So a
+# draw worker routinely lands on core 0 and is preempted by the link task's
+# long blocking UART reads. uiInit() pins the esp_lvgl_port task to core 1, but
+# that is the coordinator; with LV_USE_OS the pixels are drawn on these
+# threads. Two of them doubles the exposure and adds a FreeRTOS notify round
+# trip per draw task for no gain at a 48-row partial buffer.
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
+
+# LVGL pool. 64 KB rendered the six-page tree but could not always allocate a
+# draw task on top of it -- LV_ASSERT_MALLOC is a bare while(1), so that is a
+# silent freeze with a white panel, not an error. 128 is TOO FAR: the pool is
+# .bss, and taking it starves the internal DMA heap the two 38 KB draw buffers
+# come from -- esp_lvgl_port then fails buf2 and there is no display at all.
+# See CLAUDE.md.
+CONFIG_LV_MEM_SIZE_KILOBYTES=96

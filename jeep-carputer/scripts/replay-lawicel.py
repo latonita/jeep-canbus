@@ -31,6 +31,10 @@ number of characters between 3 and 19. That is exactly what core/LinkLine.cpp
 tests, and anything failing it is read as a command reply and dropped, which is
 what would happen to raw 't...' lines.
 
+That is the AT@SM1 shape, which is what this emits. AT@SM2 and AT@SM3 append a
+4- or 8-digit millisecond stamp, and since nothing here stamps anything, those
+two are answered '?' below rather than OK -- see command().
+
 TIMESTAMPS. LAWICEL appends four hex digits of millisecond timestamp when the
 adapter was put in Z1 mode. Detected here by length rather than by being told:
 a frame carrying four more hex digits than its DLC accounts for has one. When
@@ -157,6 +161,13 @@ class Adapter(object):
             return                    # a KWP request; nobody here to answer it
         if up.startswith("AT@ST"):
             self.reply(STATUS % int(time.time() - self.t0))
+        elif up in ("AT@SM2", "AT@SM3"):
+            # The stamped stream levels. This stand-in appends no timestamp, and
+            # OK here would be a lie the carputer cannot detect: it would strip
+            # four or eight characters off every frame line and decode the rest.
+            # '?' is what a gateway without the levels answers, and At328Link
+            # retries at AT@SM1 -- so this also exercises that fallback.
+            self.reply("?")
         elif up in ("ATI", "ATZ"):
             self.reply(IDENT)
         else:

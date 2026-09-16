@@ -36,6 +36,25 @@ bool sameText(const char* line, const char* want) {
   return strcmp(line, want) == 0;
 }
 
+// THE ONE PLACE the AT@SM level and the timestamp width are related.
+//
+// The level is the declaration: one number saying both "stream on" and "this
+// wide". Both the classifier's accepted length set and parseFrameLine's strip
+// length come from this function, because if those two ever disagreed about the
+// width the line would be accepted at one split and decoded at another -- which
+// lands as a frame silently routed to the command reader, the exact failure
+// core/LinkLine.h's header is written about.
+//
+// Level 1 streams unstamped and is the default, so an unmodified session is
+// byte-identical to the one this file has always configured.
+uint8_t stampCharsForLevel(uint8_t level) {
+  switch (level) {
+    case 2u:  return LINK_LINE_TS_SHORT;   // 4 digits, millis() % 60000
+    case 3u:  return LINK_LINE_TS_LONG;    // 8 digits, raw millis()
+    default:  return LINK_LINE_TS_NONE;    // 1 = unstamped stream, 0 = no stream
+  }
+}
+
 }  // namespace
 
 At328Link::At328Link(uart_port_t port, int txPin, int rxPin, uint32_t baud)
@@ -47,6 +66,11 @@ At328Link::At328Link(uart_port_t port, int txPin, int rxPin, uint32_t baud)
       respId_(0u),
       targetValid_(false),
       lastRxMs_(0u),
+      streamLevel_(0u),
+      stampChars_(LINK_LINE_TS_NONE),
+      lastStampMs_(0u),
+      haveStamp_(false),
+      streamLevelReq_(1u),
       ready_(false),
       monitoring_(false),
       streaming_(false),
@@ -160,9 +184,25 @@ void At328Link::readerLoop() {
     lastRxMs_ = nowMs();
 
     if (len != 0u) {
-      if (linkClassifyLine(line, len) == LINK_LINE_FRAME) {
+      // ONE read of the stamp width per line, shared by the classifier and the
+      // parser. Read it twice and a begin() landing in between would let them
+      // split the same characters differently -- 19 chars accepted as 8
+      // unstamped data bytes and then decoded as 6 bytes plus a stamp, or the
+      // reverse -- and both halves would look like they had done their job.
+      const uint8_t ts = stampChars_;
+
+      if (linkClassifyLine(line, len, ts) == LINK_LINE_FRAME) {
         CanFrame f;
-        if (parseFrameLine(line, len, f)) {
+        uint32_t stamp = 0u;
+        if (parseFrameLine(line, len, ts, f, stamp)) {
+          if (ts != LINK_LINE_TS_NONE) {
+            // Latched, not attached. Mapping the adapter's clock onto ours is a
+            // job of its own (offset estimation, and unwrapping level 2's 60 s
+            // rollover) and half of it would be worse than none, so the sink
+            // below keeps getting the host clock exactly as before.
+            lastStampMs_ = stamp;
+            haveStamp_ = true;
+          }
           // targetValid_ is false whenever no request is addressed, so in the
           // ATMA fallback every frame reaches the sink exactly as before.
           // Broadcast ids (0x000..0x210) never collide with a response id
@@ -172,6 +212,7 @@ void At328Link::readerLoop() {
             // reader, because every broadcast behind it would stall too.
             (void)xQueueSend(frameQ_, &f, 0);
           } else if (sink_ != nullptr) {
+            // The HOST clock, on purpose, even when a stamp was decoded above.
             sink_(f, nowMs());
           }
         }
@@ -250,7 +291,13 @@ LinkStatus At328Link::begin() {
   // Cleared here, not just set below: a retry after a failed begin() must not
   // inherit the previous adapter's answer. Swapping a 2.1 board for a 2.0 one
   // would otherwise leave us streaming against a device that never started.
+  //
+  // The level and the width it implies go with it, and for a sharper version of
+  // the same reason: a width left over from a session that is gone would have
+  // the reader stripping four characters off lines nothing is appending to.
   streaming_ = false;
+  streamLevel_ = 0u;
+  stampChars_ = LINK_LINE_TS_NONE;
 
   uart_config_t cfg = {};
   cfg.baud_rate = static_cast<int>(baud_);
@@ -332,19 +379,62 @@ LinkStatus At328Link::begin() {
 
   ready_ = true;
 
-  // Ask for the background frame stream. A 2.0 adapter has never heard of
-  // AT@SM and answers '?', which is NOT an error -- it means fall back to the
-  // ATMA alternation. Probing rather than assuming is what lets the two
-  // firmwares be flashed on separate trips to the radio.
-  streaming_ = (command("AT@SM1", AT328_CMD_TIMEOUT_MS) == LINK_OK);
+  // Ask for the background frame stream, at the level setStreamLevel() chose.
+  // A 2.0 adapter has never heard of AT@SM and answers '?', which is NOT an
+  // error -- it means fall back to the ATMA alternation. Probing rather than
+  // assuming is what lets the two firmwares be flashed on separate trips to the
+  // radio.
+  //
+  // No AT@ST parsing to discover the level: we are the side that declares it,
+  // and ATZ plus this command re-declare it on every bring-up, so an adapter
+  // left streaming by a previous session is re-stated rather than interrogated.
+  char sm[12];
+  snprintf(sm, sizeof(sm), "AT@SM%u", static_cast<unsigned>(streamLevelReq_));
+  streaming_ = (command(sm, AT328_CMD_TIMEOUT_MS) == LINK_OK);
+
+  // A gateway that streams but has never heard of the STAMPED levels also
+  // answers '?'. Falling all the way back to the ATMA alternation there would
+  // trade the overlap of requests and broadcasts -- the thing that made this
+  // adapter worth a new firmware -- for a timestamp nothing yet consumes. So
+  // retry unstamped: level 1 is strictly better than windows.
+  if (streaming_) {
+    streamLevel_ = streamLevelReq_;
+  } else if (streamLevelReq_ > 1u) {
+    ESP_LOGW(TAG, "%s rejected: retrying unstamped at AT@SM1", sm);
+    streaming_ = (command("AT@SM1", AT328_CMD_TIMEOUT_MS) == LINK_OK);
+    streamLevel_ = streaming_ ? 1u : 0u;
+  }
+  stampChars_ = stampCharsForLevel(streamLevel_);
 
   ESP_LOGI(TAG, "adapter ready on UART%d tx=%d rx=%d @%u",
            static_cast<int>(port_), txPin_, rxPin_,
            static_cast<unsigned>(baud_));
-  ESP_LOGI(TAG, "%s", streaming_
-      ? "AT@SM1 accepted: streaming, requests and broadcasts overlap"
-      : "no AT@SM (adapter older than 2.1): falling back to ATMA windows");
+  if (streaming_) {
+    ESP_LOGI(TAG, "AT@SM%u accepted: streaming, requests and broadcasts "
+                  "overlap, %u-char timestamp",
+             static_cast<unsigned>(streamLevel_),
+             static_cast<unsigned>(stampChars_));
+  } else {
+    ESP_LOGI(TAG, "no AT@SM (adapter older than 2.1): falling back to ATMA "
+                  "windows");
+  }
   return LINK_OK;
+}
+
+// 1..3 only. 0 is not offered here because it would turn the stream off by a
+// route that looks like configuration, and the way to run without the stream is
+// an adapter that refuses AT@SM. Anything else is a caller's mistake, and one
+// that would otherwise show up as a dead dashboard on a healthy link: the width
+// would not match what the adapter appends, so every frame line would fail the
+// classifier's length set and be filed as a command reply.
+void At328Link::setStreamLevel(uint8_t level) {
+  if (level < 1u || level > 3u) {
+    ESP_LOGE(TAG, "AT@SM level %u out of 1..3 -- ignored, staying at %u",
+             static_cast<unsigned>(level),
+             static_cast<unsigned>(streamLevelReq_));
+    return;
+  }
+  streamLevelReq_ = level;
 }
 
 LinkStatus At328Link::setTarget(uint16_t requestId, uint16_t responseId) {
@@ -411,13 +501,21 @@ LinkStatus At328Link::sendFrame(const CanFrame& frame) {
   return LINK_OK;
 }
 
-// With ATH1 + ATS0 a frame line is exactly three id nibbles followed by an
-// even number of data nibbles, no separators.
-bool At328Link::parseFrameLine(const char* line, uint16_t len, CanFrame& out) {
-  if (line == nullptr || len < 3u) {
+// With ATH1 + ATS0 a frame line is exactly three id nibbles followed by an even
+// number of data nibbles, no separators -- and then, at AT@SM2 or AT@SM3, a
+// fixed-width millisecond stamp with no separator before it either.
+//
+// `tsChars` is the CONFIGURED width. It is not measurable: there is no DLC on
+// this wire, so `3+2n` and `3+2n+4` overlap and the split has to be TOLD. It
+// must be the value linkClassifyLine() accepted this line with, which is why
+// the reader passes one copy to both.
+bool At328Link::parseFrameLine(const char* line, uint16_t len, uint8_t tsChars,
+                               CanFrame& out, uint32_t& stampMs) {
+  stampMs = 0u;
+  if (line == nullptr || len < static_cast<uint16_t>(3u + tsChars)) {
     return false;
   }
-  const uint16_t dataChars = static_cast<uint16_t>(len - 3u);
+  const uint16_t dataChars = static_cast<uint16_t>(len - 3u - tsChars);
   if ((dataChars & 1u) != 0u || (dataChars / 2u) > CAN_MAX_DLC) {
     return false;
   }
@@ -443,6 +541,19 @@ bool At328Link::parseFrameLine(const char* line, uint16_t len, CanFrame& out) {
   }
   for (uint8_t i = out.len; i < CAN_MAX_DLC; ++i) {
     out.data[i] = 0u;
+  }
+
+  // The stamp last, and a bad digit in it fails the whole frame rather than
+  // yielding a good frame with a garbage time on it -- the caller cannot tell
+  // those apart from a bool. The classifier has already scanned every character
+  // with the same accept set (hexVal's 0-9 A-F a-f), so this loop only ever
+  // fails on a line that never went through it.
+  for (uint8_t i = 0u; i < tsChars; ++i) {
+    const int v = hexVal(line[3u + dataChars + i]);
+    if (v < 0) {
+      return false;
+    }
+    stampMs = (stampMs << 4) | static_cast<uint32_t>(v);
   }
   return true;
 }

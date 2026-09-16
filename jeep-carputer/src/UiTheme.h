@@ -104,8 +104,15 @@ uint8_t uiThemeGet(void);
 #endif
 #ifdef UI_HAVE_DIGIT_FONTS
 #define UI_FONT_LABEL  (&font_label_14)
+// The HERO UNIT face, one step up from the caption face. The artboards draw the
+// unit larger than the caption (13 px against 9); drawing both in
+// font_label_14 flattened that and made the unit read as a second caption.
+// Used only for the page unit keys -- every stack-row unit stays at 14, and
+// that difference IS the hierarchy.
+#define UI_FONT_UNIT   (&font_label_20)
 #else
 #define UI_FONT_LABEL  (&lv_font_montserrat_14)
+#define UI_FONT_UNIT   (&lv_font_montserrat_14)
 #endif
 
 // ---- Layout --------------------------------------------------------------

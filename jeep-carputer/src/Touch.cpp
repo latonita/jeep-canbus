@@ -31,24 +31,25 @@ static const char* TAG = "touch";
 // ---------------------------------------------------------------------------
 // Coordinate transform -- the part most likely to be wrong, so: the reasoning.
 //
-// Display.cpp calls esp_lcd_panel_mirror(true, false), and Ui.cpp then
-// deliberately leaves LVGL's own rotation flags false so the two do not cancel
-// out. So exactly one horizontal flip is applied, and it happens inside the
-// ST7789 (MADCTL MX): LVGL's x = 0 lands on the physical edge opposite to the
-// panel's unmirrored default.
+// NO flip is applied to the panel at all, and that is the whole reason these
+// are zero.
 //
-// What matters is WHY that mirror is there. It is not a correction we invented;
-// it comes from Waveshare's own panel init, and its purpose is to make the
-// LCD's coordinate space agree with the physical module as it is held -- image
-// top-left at glass top-left. In other words, after mirror(true, false) the
-// LVGL frame IS the module's visible frame.
+// This block used to argue the opposite -- that Display.cpp's
+// esp_lcd_panel_mirror(true, false) survived and put exactly one horizontal
+// flip in the way. It does not. lvgl_port_add_disp() calls its own rotation
+// update unconditionally (esp_lvgl_port_disp.c), and at ROTATION_0 with Ui.cpp's
+// all-false disp_cfg.rotation that issues mirror(false, false) straight into
+// MADCTL, replacing whatever Display.cpp set. The panel's orientation is the
+// port's, not Display.cpp's.
 //
-// The touch digitiser is a separate laminated layer with its own origin, fixed
-// by its flex, and module makers define that against the finished module rather
-// than against the LCD controller's register defaults. The CST328 here reports
-// 0..239 in x and 0..319 in y -- already the visible frame. The two spaces
-// therefore already agree, and mirroring the touch as well would UNDO the panel
-// mirror and put every tap on the wrong side.
+// So the LVGL frame is the panel's UNMIRRORED frame. The CST328 reports
+// 0..239 in x and 0..319 in y against the finished module -- module makers fix
+// the digitiser's origin to the assembled part, not to the LCD controller's
+// register defaults -- and the two spaces agree. Mirroring the touch would
+// introduce a disagreement that is not there.
+//
+// The conclusion is unchanged from when the reasoning was wrong, which is why
+// this went unnoticed: all-zero flags were correct either way.
 //
 // This is also the configuration Waveshare ships for this exact board: both
 // managed_components/waveshare__esp_lcd_touch_cst328/README.md and its
@@ -60,6 +61,19 @@ static const char* TAG = "touch";
 // TOUCH_MIRROR_Y; if x and y are transposed, TOUCH_SWAP_XY. Those three lines
 // are the whole fix -- nothing in Display.cpp or Ui.cpp should be changed to
 // correct it, or the image and the touch will drift apart again.
+//
+// THESE FLAGS ARE NOT PART OF THE LANDSCAPE ROTATION, and must not be made
+// part of it. The digitiser is glued to the glass and does not turn when the
+// UI does: it reports 0..239 x 0..319 whichever way round the instrument is
+// drawn, which is exactly what belongs here. lv_indev's pointer handling runs
+// every point through lv_display_rotate_point() before any widget sees it
+// (see indev_pointer_proc in lv_indev.c), so LVGL has already rotated the tap
+// by the time it matters.
+//
+// That is why rotating is one call in Ui.cpp and touches nothing here. Adding
+// a swap_xy to "match" a landscape panel would rotate the input twice and put
+// every tap on the wrong side -- the precise failure this block exists to
+// prevent, arrived at from the opposite direction.
 #define TOUCH_SWAP_XY   false
 #define TOUCH_MIRROR_X  false
 #define TOUCH_MIRROR_Y  false
@@ -115,6 +129,44 @@ static const char* TAG = "touch";
 // apart. The INT line below is what tells them apart instead.
 #define TOUCH_RELEASE_HOLD_MS 60
 
+// ...but only while we are still guessing. Once the INT line has PROVEN itself
+// a level, a high INT means the finger is gone and there is nothing left to
+// wait for -- so the wait drops to one poll, just enough that a single glitched
+// read cannot end a drag.
+//
+// This matters far more than the 40 ms of latency it saves, because of how
+// LVGL measures a throw. It builds the scroll velocity from the last eight
+// per-poll deltas, weighted (1 - t/99ms) and ZERO beyond 99 ms
+// (indev_scroll_throw_decay in lv_indev.c). During the hold this driver keeps
+// reporting PRESSED at UNCHANGED coordinates -- so a 60 ms hold injects about
+// four zero-motion samples and ages every real one 60 ms further into that
+// decay. Only the last ~39 ms of travel survives, at under 0.4 weight.
+//
+// The effect is that a flick's measured velocity collapses by something like
+// five to ten times, LVGL's predicted landing falls short of the half-page it
+// needs to commit, and the page snaps back to where it started. The gesture was
+// fine; the driver was throwing away the evidence of it.
+// ...but ONLY while the finger is moving.
+//
+// This started as a flat 20 ms once INT had proven itself a level, and that was
+// wrong in a way worth writing down. A stationary finger is exactly when this
+// controller reports most slowly, and INT being "proven" takes only ONE
+// observation of it low -- which can happen during motion and says nothing
+// about whether it stays low under a still fingertip. With a 20 ms hold a
+// single press was being chopped into several: two CLICKEDs inside the
+// double-tap window, so one tap rotated the TRIP meter, and no press ever
+// survived the 400 ms that LV_EVENT_LONG_PRESSED needs, so the reset could not
+// be reached at all.
+//
+// So the hold now follows the gesture. A finger that has moved recently is
+// ending a swipe, and wants to be released PROMPTLY -- every extra sample of
+// held-still coordinates is a zero-motion entry in LVGL's throw history, which
+// is what was gutting the flick velocity. A finger that has not moved is being
+// held deliberately, and wants to be bridged.
+#define TOUCH_RELEASE_HOLD_INT_MS 20
+#define TOUCH_MOVING_RECENT_MS    200u
+#define TOUCH_MOVED_PX            3
+
 static i2c_master_bus_handle_t   s_bus = nullptr;
 static esp_lcd_panel_io_handle_t s_io = nullptr;
 static esp_lcd_touch_handle_t    s_touch = nullptr;
@@ -124,6 +176,7 @@ static lv_indev_t*               s_indev = nullptr;
 static int32_t  s_lastX = 0;
 static int32_t  s_lastY = 0;
 static uint32_t s_lastPointMs = 0u;
+static uint32_t s_lastMoveMs = 0u;   // when the contact last actually moved
 static bool     s_pressed = false;
 
 // Whether the INT line has been OBSERVED to behave as a level.
@@ -160,8 +213,15 @@ static void touchReadCb(lv_indev_t* indev, lv_indev_data_t* data) {
   if (esp_lcd_touch_read_data(s_touch) == ESP_OK &&
       esp_lcd_touch_get_coordinates(s_touch, &x, &y, &strength, &points, 1) &&
       points > 0u) {
-    s_lastX = static_cast<int32_t>(x);
-    s_lastY = static_cast<int32_t>(y);
+    const int32_t nx = static_cast<int32_t>(x);
+    const int32_t ny = static_cast<int32_t>(y);
+    const int32_t dx = (nx > s_lastX) ? (nx - s_lastX) : (s_lastX - nx);
+    const int32_t dy = (ny > s_lastY) ? (ny - s_lastY) : (s_lastY - ny);
+    if (!s_pressed || dx >= TOUCH_MOVED_PX || dy >= TOUCH_MOVED_PX) {
+      s_lastMoveMs = lv_tick_get();
+    }
+    s_lastX = nx;
+    s_lastY = ny;
     s_lastPointMs = lv_tick_get();
     s_pressed = true;
   } else if (s_pressed) {
@@ -180,8 +240,16 @@ static void touchReadCb(lv_indev_t* indev, lv_indev_data_t* data) {
         ESP_LOGI(TAG, "INT is a level: contact tracked from GPIO%d, not the timer",
                  (int)TOUCH_PIN_INT);
       }
-    } else if (lv_tick_elaps(s_lastPointMs) >= TOUCH_RELEASE_HOLD_MS) {
-      s_pressed = false;
+    } else {
+      // A finger that moved in the last fifth of a second is finishing a swipe:
+      // let go at once. A still one is being held: bridge the gap.
+      const bool wasMoving =
+          (s_lastMoveMs != 0u) && (lv_tick_elaps(s_lastMoveMs) < TOUCH_MOVING_RECENT_MS);
+      const uint32_t hold = (s_intProven && wasMoving) ? TOUCH_RELEASE_HOLD_INT_MS
+                                                       : TOUCH_RELEASE_HOLD_MS;
+      if (lv_tick_elaps(s_lastPointMs) >= hold) {
+        s_pressed = false;
+      }
     }
   }
 
@@ -342,6 +410,21 @@ esp_err_t touchInit(void) {
     lv_indev_set_type(s_indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(s_indev, touchReadCb);
     lv_indev_set_display(s_indev, disp);
+
+    // More momentum per unit of measured velocity.
+    //
+    // LVGL's default of 10 decays the throw by 10% a step, which sums to about
+    // seven times the sampled velocity. That assumes each poll carries a real
+    // motion delta -- and this controller reports more slowly than the 16 ms
+    // indev poll, so a good share of the eight-sample window is zeros even
+    // mid-drag, and the velocity LVGL computes is legitimately lower than the
+    // finger's. 4 decays at 4% a step, worth roughly twenty times, which puts
+    // a deliberate flick back over the half-page it needs to commit.
+    //
+    // Safe to be generous precisely BECAUSE the scroller is one-page-at-a-time
+    // (LV_OBJ_FLAG_SCROLL_ONE): surplus momentum cannot overshoot into the page
+    // after next, it can only make the intended page arrive.
+    lv_indev_set_scroll_throw(s_indev, 4);
   }
   lvgl_port_unlock();
   if (s_indev == nullptr) {
@@ -351,10 +434,11 @@ esp_err_t touchInit(void) {
 
   ESP_LOGI(TAG,
            "CST328 up: i2c%d sda=%d scl=%d rst=%d int=%d, %dx%d, "
-           "swap=%d mirror=%d/%d, release hold %dms",
+           "swap=%d mirror=%d/%d, release hold %dms still / %dms moving",
            static_cast<int>(TOUCH_I2C_PORT), TOUCH_PIN_SDA, TOUCH_PIN_SCL,
            TOUCH_PIN_RST, TOUCH_PIN_INT, LCD_H_RES, LCD_V_RES,
            static_cast<int>(TOUCH_SWAP_XY), static_cast<int>(TOUCH_MIRROR_X),
-           static_cast<int>(TOUCH_MIRROR_Y), TOUCH_RELEASE_HOLD_MS);
+           static_cast<int>(TOUCH_MIRROR_Y), TOUCH_RELEASE_HOLD_MS,
+           TOUCH_RELEASE_HOLD_INT_MS);
   return ESP_OK;
 }

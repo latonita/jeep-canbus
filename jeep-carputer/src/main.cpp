@@ -37,6 +37,9 @@
 #include "SignalDb.h"
 #include "Broadcast.h"
 #include "TpmsSignals.h"
+#include "Accel.h"
+#include "FaultStore.h"
+#include "Faults.h"
 #include "Trip.h"
 #include "TripStore.h"
 #include "VehicleState.h"
@@ -50,6 +53,13 @@ static PollScheduler gSched;
 static BroadcastState gBcast;
 static TripSet gTrips;
 
+// Acceleration timing. Written by the LINK READER TASK, unlike the trips --
+// see onBroadcastFrame() for why it has to be, and why that is safe.
+static AccelSet gAccel;
+
+// Stored trouble codes, walked one module per pass of carTask.
+static FaultSet gFaults;
+
 // A long press on the TRIP page asks for a reset. The request is a flag rather
 // than a direct call because gTrips is written by carTask alone: letting the
 // LVGL task clear it mid-integration is the kind of race that shows up once a
@@ -58,6 +68,58 @@ static volatile uint8_t gTripResetReq = 0xFFu;
 
 static void requestTripReset(uint8_t which) {
   gTripResetReq = which;
+}
+
+// A fresh fault scan has been asked for. A flag rather than a direct call, for
+// the same reason the trip reset is one: gFaults is walked by carTask, and
+// twelve ISO-TP transactions started from the LVGL task would block the
+// renderer for several seconds AND race the walk already in flight.
+//
+// Set by RE-READ on the FAULTS page, and by the timer below.
+static volatile bool gFaultScanReq = false;
+
+static void requestFaultScan(void) {
+  gFaultScanReq = true;
+}
+
+// The scan also starts itself: once as soon as the link is up, and then every
+// five minutes.
+//
+// NOT at boot. With the link still down every module is marked unreachable
+// without being asked, so a boot-time scan would hand the driver a completed
+// walk that questioned nothing -- and it would do it just as the link is coming
+// up, when the answer is about to be obtainable. Waiting for gLinkUp is what
+// makes "read once when the link is established" and "read again every five
+// minutes" the same piece of code.
+#define FAULT_SCAN_PERIOD_MS (5u * 60u * 1000u)
+
+// When the next automatic scan is owed, compared SIGNED against nowMs() so 0
+// means "as soon as the link allows" and the 49-day wrap needs no special case.
+// Written only by the completion paths in faultScanStep(), on carTask.
+static uint32_t gFaultScanDueMs = 0u;
+
+// Which fault the driver asked to mute, by list index. 0xFF is "nothing".
+// A request rather than a direct call for the same reason as everything else
+// here: carTask owns gFaults, and the mute is committed to flash, which the
+// LVGL task must never do.
+static volatile uint8_t gFaultMuteReq = 0xFFu;
+
+static void requestFaultMute(uint8_t index) {
+  gFaultMuteReq = index;
+}
+
+// Which fault the driver asked to ERASE from its module, by (ecu, code).
+//
+// Not by list index, unlike the mute: a scan finishing between the tap and
+// this being consumed re-sorts the list, and an index would then name a
+// different fault -- which for a destructive operation is the one mistake
+// that cannot be undone. 0xFF ecu is "nothing asked".
+static volatile uint8_t  gFaultClearEcu = 0xFFu;
+static volatile uint16_t gFaultClearCode = 0u;
+
+static void requestFaultClear(uint8_t ecu, uint16_t code) {
+  gFaultClearCode = code;
+  gFaultClearEcu = ecu;     // LAST, so the pair is complete when it is seen
 }
 
 // What to ask for, and how often. Modest rates on purpose: this is an 83.3 kbps
@@ -71,8 +133,27 @@ static const PollItem kPlan[] = {
     {ECU_CCN, 0x2103u, 5000u},   // fuel level %      -- not broadcast
     {ECU_CCN, 0x213Fu, 5000u},   // warning lamps     -- not broadcast
     {ECU_CCN, 0x2135u, 10000u},  // fluid-low flags   -- not broadcast
-    {ECU_WCM, TPMS_ROAD_WHEELS_PID, 5000u},  // tyre pressures -- request-only
-    {ECU_WCM, TPMS_SPARE_PID, 30000u},       // the spare      -- own request
+    // Tyre pressure once a MINUTE, on the owner's instruction -- it was every
+    // 5 s. Nothing is lost: a tyre loses pressure over days, the sensors
+    // themselves only transmit every 60 s or so parked and every ~15 s rolling,
+    // so a 5 s request mostly re-read the WCM's own held copy. What it buys is
+    // bus time -- four of the five requests in this plan are gone.
+    //
+    // The spare used to be six times slower than the corners and now shares
+    // their rate, because `PollItem::periodMs` is a uint16_t: 65535 ms is the
+    // longest period this plan can express, so "slower than a minute" is not
+    // available without widening a core struct. A minute for both keeps the
+    // ordering that actually matters -- the spare is never asked for MORE
+    // often than the wheels the warning is about -- and costs one transaction
+    // a minute for a value that reads ~0.5 bar and is excluded from the low
+    // warning anyway.
+    //
+    // Both TTLs in Ui.cpp are tied to these numbers -- UI_TYRE_TTL_MS and
+    // UI_SPARE_TTL_MS, twice the poll interval each. Change a rate here and
+    // change the TTL there, or the page dims a reading that is as fresh as it
+    // is ever going to be.
+    {ECU_WCM, TPMS_ROAD_WHEELS_PID, 60000u},  // tyre pressures -- request-only
+    {ECU_WCM, TPMS_SPARE_PID, 60000u},        // the spare      -- own request
 };
 
 static const uint8_t kPlanCount = sizeof(kPlan) / sizeof(kPlan[0]);
@@ -329,6 +410,32 @@ static void onBroadcastFrame(const CanFrame& f, uint32_t t) {
     // actively turning, which reads as the screen ignoring them.
     applyBacklight(t);
   }
+
+  // Acceleration timing IS fed from here, unlike the trips two paragraphs up.
+  //
+  // It has to be. carTask samples gBcast once around a loop that contains a
+  // 700 ms monitor window, and an accelerometer figure timed off that would
+  // start its clock up to 700 ms before the car actually moved -- a fifth of a
+  // brisk 0-60, all of it in the flattering direction. accelUpdate() needs
+  // every 0x002 it can get, at the stamp the frame carried.
+  //
+  // Safe for the same reason gBcast itself is: ONE writer. This task is the
+  // only one that touches gAccel, and the UI only ever reads it. The trips are
+  // different because carTask also resets and commits them, which is a second
+  // writer and a real race.
+  //
+  // accelTick() rides along on every frame, not just 0x002, so a run whose
+  // speed broadcasts stop still expires on the clock rather than timing for
+  // ever. At 151 frames/s there is no shortage of chances.
+  // rpm as well as speed: a run may only ARM from a genuine standing start,
+  // engine turning and not already wound up. See ACCEL_IDLE_RPM.
+  accelUpdate(gAccel, gBcast.speedKph, gBcast.rpm, gBcast.speedMs);
+  // FRESH pedal only. pedalRaw is held when 0x2C0 stops, and this flag is what
+  // arms a run now rather than what decorates one -- see BC_PEDAL_TTL_MS.
+  const bool pedalLive =
+      gBcast.pedalMs != 0u && (uint32_t)(t - gBcast.pedalMs) < BC_PEDAL_TTL_MS;
+  accelPedal(gAccel, pedalLive && gBcast.pedalRaw >= BC_PEDAL_KICKDOWN);
+  accelTick(gAccel, t);
 }
 
 // How often TRIP A is committed to flash. A minute of driving is at most ~1.5 km
@@ -420,14 +527,209 @@ static void linkWatchdog(uint32_t now) {
   }
 }
 
-// Everything the trip meters need that does NOT depend on the link being up.
+// Ask ONE module for its stored codes, and advance the scan.
 //
+// Started by the timer above -- once when the link comes up, then every
+// FAULT_SCAN_PERIOD_MS -- or by RE-READ on the FAULTS page, which only brings
+// the next one forward. The automatic start is gated on gLinkUp, because a walk
+// with no link marks every module unreachable and repeating THAT every five
+// minutes would keep replacing a real answer with an empty one.
+//
+// Deliberately one per pass. A full walk is twelve modules, half of them on
+// CAN-C where they may never answer, so a scan that tried to finish in one go
+// would spend five seconds of bus time not listening. Spread one module per
+// pass it is twelve seconds of nothing anyone can perceive, which is also what
+// makes repeating it every five minutes free.
+//
+// A longer timeout than a normal poll: a module with a full fault table takes
+// visibly longer to answer 18 00 FF 00 than it does to answer a data read.
+#define DTC_TIMEOUT_MS 800u
+
+// Erase ONE stored code from the module that reported it.
+//
+// KWP `14 <hi> <lo>` -- clearDiagnosticInformation with the group field set to
+// the specific code rather than the all-groups `FF 00`. Whether these modules
+// honour the single-code form is NOT established; a refusal is logged and the
+// row stays, which is why the dialog's button can end up saying FAILED.
+//
+// The row is removed from our list only on a POSITIVE reply. Removing it
+// optimistically would show the driver a fault that is still stored in the car
+// and would come back at the next read -- the frozen-but-plausible failure,
+// applied to the one screen whose whole job is saying what is wrong.
+static void faultClearIfAsked(void) {
+  const uint8_t ecu = gFaultClearEcu;
+  if (ecu == 0xFFu) {
+    return;
+  }
+  const uint16_t code = gFaultClearCode;
+  gFaultClearEcu = 0xFFu;
+
+  if (ecu >= ECU_COUNT) {
+    return;
+  }
+  // Find it by (ecu, code). It may have moved, or be gone already.
+  uint8_t idx = 0xFFu;
+  for (uint8_t i = 0u; i < gFaults.count; ++i) {
+    if (gFaults.f[i].ecu == ecu && gFaults.f[i].code == code) {
+      idx = i;
+      break;
+    }
+  }
+  char sae[8];
+  if (!kwpDtcToSae(code, sae, sizeof(sae))) {
+    snprintf(sae, sizeof(sae), "%04X", (unsigned)code);
+  }
+  if (idx == 0xFFu) {
+    ESP_LOGW(TAG, "dtc clear %s: no longer in the list", sae);
+    return;
+  }
+  if (!gLinkUp) {
+    ESP_LOGW(TAG, "dtc clear %s: link down", sae);
+    return;
+  }
+
+  const EcuDef& def = kEcus[ecu];
+  uint8_t req[4];
+  const uint8_t reqLen = kwpBuildClearDtc(code, req, sizeof(req));
+  if (reqLen == 0u) {
+    return;
+  }
+  IsoTpPdu pdu;
+  KwpResponse resp;
+  const IsoTpStatus st = gIsoTp.transact(def.requestId, def.responseId, req,
+                                         reqLen, pdu, DTC_TIMEOUT_MS);
+  if (st != ISOTP_OK) {
+    ESP_LOGW(TAG, "dtc clear %s %s: no answer (isotp %d)", def.name, sae,
+             (int)st);
+    return;
+  }
+  const KwpStatus ks = kwpParseResponse(req, reqLen, pdu, resp);
+  if (ks != KWP_OK) {
+    ESP_LOGW(TAG, "dtc clear %s %s: refused (kwp %d nrc %02X)", def.name, sae,
+             (int)ks, resp.nrc);
+    return;
+  }
+  ESP_LOGI(TAG, "dtc clear %s %s: erased", def.name, sae);
+  // The drill-down notices the row has gone and closes its dialog itself --
+  // it tracks the fault it is showing by (ecu, code) for exactly this.
+  faultsRemove(gFaults, idx);
+}
+
+static void faultScanStep(void) {
+  // Self-starting, gated on the link. The due stamp is moved only by the
+  // completion paths below, so a walk cut short by the link dropping is owed
+  // again the moment the link returns rather than five minutes later.
+  if (gLinkUp && !faultsScanning(gFaults) &&
+      (int32_t)(nowMs() - gFaultScanDueMs) >= 0) {
+    gFaultScanReq = true;
+  }
+
+  // A request only takes effect between walks. Restarting one mid-flight would
+  // throw away the modules already asked and re-ask them, which from the
+  // driver's side looks like the scan going backwards.
+  if (gFaultScanReq && !faultsScanning(gFaults)) {
+    gFaultScanReq = false;
+    faultsBeginScan(gFaults, ECU_COUNT);
+    ESP_LOGI(TAG, "dtc scan requested: walking %u modules", (unsigned)ECU_COUNT);
+  }
+
+  const uint8_t muteReq = gFaultMuteReq;
+  if (muteReq != 0xFFu) {
+    gFaultMuteReq = 0xFFu;
+    if (faultsMuteFull(gFaults) && !gFaults.f[muteReq].muted) {
+      ESP_LOGW(TAG, "mute list full (%u)", (unsigned)FAULT_MUTE_MAX);
+    } else {
+      const bool now = faultsToggleMute(gFaults, muteReq);
+      faultStoreSaveMutes(gFaults);
+      ESP_LOGI(TAG, "fault %u %s", (unsigned)muteReq,
+               now ? "muted" : "un-muted");
+    }
+  }
+
+  faultClearIfAsked();
+
+  const uint8_t ecuIdx = faultsNextEcu(gFaults);
+  if (ecuIdx == 0xFFu) {
+    return;
+  }
+  if (ecuIdx >= ECU_COUNT) {
+    faultsEndScan(gFaults, nowMs());
+    gFaultScanDueMs = nowMs() + FAULT_SCAN_PERIOD_MS;
+    return;
+  }
+
+  // No link: mark it unreachable WITHOUT transacting. Asking anyway would cost
+  // twelve 800 ms timeouts for an answer we already know, and this runs inside
+  // the bring-up retry loop where that would delay reconnecting. The scan still
+  // completes and still reports honestly -- every module quiet, nothing found.
+  if (!gLinkUp) {
+    faultsEcuFailed(gFaults, ecuIdx);
+    if (!faultsScanning(gFaults)) {
+      faultsEndScan(gFaults, nowMs());
+      // Owed immediately, not in five minutes: this walk answered nothing, and
+      // the gate above holds it off until the link is actually back anyway.
+      gFaultScanDueMs = nowMs();
+      ESP_LOGW(TAG, "dtc scan abandoned: link down");
+    }
+    return;
+  }
+
+  const EcuDef& ecu = kEcus[ecuIdx];
+
+  uint8_t req[4];
+  const uint8_t reqLen = kwpBuildReadDtc(req, sizeof(req));
+  IsoTpPdu pdu;
+  KwpResponse resp;
+  DtcRecord recs[FAULT_MAX];
+  bool truncated = false;
+
+  const IsoTpStatus st =
+      gIsoTp.transact(ecu.requestId, ecu.responseId, req, reqLen, pdu,
+                      DTC_TIMEOUT_MS);
+  if (st != ISOTP_OK ||
+      kwpParseResponse(req, reqLen, pdu, resp) != KWP_OK) {
+    // Silent, or a negative reply. NOT the same as clean -- see Faults.h.
+    ESP_LOGI(TAG, "dtc %s: no answer", ecu.name);
+    faultsEcuFailed(gFaults, ecuIdx);
+  } else {
+    const uint8_t n = kwpParseDtcList(resp, recs, FAULT_MAX, truncated);
+    faultsRecord(gFaults, ecuIdx, recs, n, truncated);
+    for (uint8_t i = 0u; i < n; ++i) {
+      char sae[8];
+      if (!kwpDtcToSae(recs[i].code, sae, sizeof(sae))) {
+        snprintf(sae, sizeof(sae), "%04X", recs[i].code);
+      }
+      const DtcDef* def = dtcLookup(ecuIdx, recs[i].code);
+      ESP_LOGW(TAG, "dtc %s %s %s -- %s", ecu.name, sae,
+               kwpDtcStatusText(recs[i].status),
+               (def != nullptr && def->text != nullptr) ? def->text : "(no description)");
+    }
+    ESP_LOGI(TAG, "dtc %s: %u code(s)", ecu.name, (unsigned)n);
+  }
+
+  if (!faultsScanning(gFaults)) {
+    faultsEndScan(gFaults, nowMs());
+    gFaultScanDueMs = nowMs() + FAULT_SCAN_PERIOD_MS;
+    ESP_LOGI(TAG, "dtc scan done: %u stored, %u modules answered, %u quiet%s",
+             (unsigned)gFaults.count, (unsigned)faultsAnsweredCount(gFaults),
+             (unsigned)faultsUnreachableCount(gFaults),
+             gFaults.full ? ", table full" : "");
+  }
+}
+
 // Pulled out and called from two places, because it has to be. The bring-up
 // below retries the link forever, and everything after it -- including the only
 // code that acts on a reset request -- used to sit past that loop. On a bench
 // with no 328 the driver could long-press, confirm, watch the dialog close, and
 // have the request sit in gTripResetReq until the end of time. A dead link is
 // exactly when someone is most likely to be prodding the screen.
+static void faultScanStep(void);
+
+// Everything the trip meters need that does NOT depend on the link being up.
+//
+// Pulled out and called from two places, because it has to be. The bring-up
+// below retries the link forever, and everything after it -- including the only
+// code that acts on a reset request -- would otherwise sit past that loop.
 static void tripHousekeeping(void) {
   tripUpdate(gTrips, gBcast, nowMs());
 
@@ -444,11 +746,13 @@ static void tripHousekeeping(void) {
              (unsigned)gTrips.t[resetReq].odoStartDm,
              (double)tripKm(gTrips.t[resetReq]),
              (double)tripLitres(gTrips.t[resetReq]));
-    if (resetReq == TRIP_A) {
-      tripStoreSaveNow(gTrips.t[TRIP_A]);
+    if (resetReq < TRIP_STORE_COUNT) {
+      tripStoreSaveNow(gTrips.t[resetReq], resetReq);
     }
   }
-  tripStoreSave(gTrips.t[TRIP_A], nowMs(), TRIP_SAVE_INTERVAL_MS);
+  for (uint8_t i = 0; i < TRIP_STORE_COUNT; ++i) {
+    tripStoreSave(gTrips.t[i], i, nowMs(), TRIP_SAVE_INTERVAL_MS);
+  }
 }
 
 static void carTask(void*) {
@@ -470,6 +774,9 @@ static void carTask(void*) {
     // a screen stuck at whatever brightness it last saw.
     for (uint8_t i = 0u; i < 20u; ++i) {
       tripHousekeeping();
+      // Also here, for the reason above: a tap on FAULTS while the link is
+      // down must not sit unanswered until the link happens to come back.
+      faultScanStep();
       applyBacklight(nowMs());
       vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -549,6 +856,9 @@ static void carTask(void*) {
     // meter stay cleared across a key cycle.
     tripHousekeeping();
 
+    // One module's fault table per pass, until the walk is done.
+    faultScanStep();
+
     // A few requests, then back to listening. Bounded so a slow module cannot
     // starve the monitor window.
     for (uint8_t n = 0u; n < 3u; ++n) {
@@ -573,11 +883,19 @@ extern "C" void app_main(void) {
 
   registerPlanSignals();
 
-  // Trip meters. TRIP A is restored from flash; FROM START stays at zero by
-  // definition -- that difference is the entire reason there are two.
+  // Trip meters. TRIP A and TRIP B are restored from flash; FROM START stays at
+  // zero by definition -- that difference is the entire reason there are three.
+  accelInit(gAccel);
+  faultsInit(gFaults);
   tripSetInit(gTrips);
   if (tripStoreInit() == ESP_OK) {
-    (void)tripStoreLoad(gTrips.t[TRIP_A]);
+    for (uint8_t i = 0; i < TRIP_STORE_COUNT; ++i) {
+      (void)tripStoreLoad(gTrips.t[i], i);
+    }
+    // HERE, not beside faultsInit() -- tripStoreInit() is what brings NVS up,
+    // and loading before it silently returns an empty mute list, which looks
+    // exactly like the driver never muted anything.
+    (void)faultStoreLoadMutes(gFaults);
   }
 
   // Display bring-up. A failure here must not stop the car link: the data path
@@ -598,6 +916,9 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(displayBacklight(100u));
     uiSetBroadcast(&gBcast);
     uiSetTrips(&gTrips, requestTripReset);
+    uiSetAccel(&gAccel);
+    uiSetFaults(&gFaults, requestFaultScan, requestFaultMute,
+                requestFaultClear);
     if (uiInit(&gState) != ESP_OK) {
       ESP_LOGE(TAG, "dashboard unavailable");
     } else if (touchInit() != ESP_OK) {

@@ -25,9 +25,23 @@
 // unit captions off the right edge of the panel.
 //   curl -fsSLO https://raw.githubusercontent.com/google/fonts/main/ofl/barlowsemicondensed/BarlowSemiCondensed-Medium.ttf
 //   npx --yes lv_font_conv@1.5.3 --font BarlowSemiCondensed-Medium.ttf
-//       -r 0x20-0x7E -r 0xB0 --size 16 --bpp 4 --no-compress --no-prefilter
-//       --no-kerning --format lvgl --lv-include lvgl.h
+//       -r 0x20-0x7E -r 0xB0 -r 0x20AC --size 16 --bpp 4 --no-compress
+//       --no-prefilter --no-kerning --format lvgl --lv-include lvgl.h
 //       --lv-font-name font_label_14 -o font_label_14.c
+//   (same with --size 20 / --lv-font-name font_label_20 / -o font_label_20.c)
+//
+// U+20AC EURO SIGN was added to both label faces for the fuel price. It is the
+// only glyph outside ASCII+degree, and it is in BOTH so a price can be printed
+// at either size. The digit faces still have no letters and no currency: a cost
+// is numerals in font_digits_* with the sign beside it in a label face.
+//
+// font_label_20 exists for the HERO UNIT KEYS -- the KM / L/100 / V / BAR that
+// sit top-right of a page. The artboards give the unit 13px against a 9px
+// caption, so the unit is meant to be LARGER than the caption; drawing both in
+// font_label_14 flattened that and made the unit read as another caption.
+// Regenerating label_14 with the euro did not move a single existing advance
+// width -- same --size 16, same metrics (line_height 16, base_line 3) -- so
+// nothing in either band shifted.
 //
 //   font_label_14  em size 16 px, line_height 16, base_line 3 -- EXACTLY the
 //   metrics of lv_font_montserrat_14 it replaces, chosen so the swap changes
@@ -56,6 +70,11 @@ extern "C" {
 extern const lv_font_t font_digits_64;
 extern const lv_font_t font_digits_30;
 extern const lv_font_t font_label_14;
+
+//   font_label_20  em size 20 px, line_height 21, base_line 4. Same glyph set
+//   as font_label_14. Note the DIFFERENT base_line: to sit a key on the same
+//   baseline as a 14px caption its y must be 4 px HIGHER, not equal.
+extern const lv_font_t font_label_20;
 
 #ifdef __cplusplus
 }

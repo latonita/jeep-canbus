@@ -227,10 +227,14 @@ TEST_MAIN_BEGIN()
     bc.odometerMs = 0u + 1u;
     tripUpdate(s, bc, 1u);
 
-    // 60 s moving at 60 km/h, then 60 s stopped.
+    // 60 s moving at 60 km/h, then 60 s stopped -- ENGINE RUNNING throughout.
+    // Idling at a standstill still counts as elapsed time; it is the engine
+    // being OFF that stops the clock, not the car being stationary.
     for (uint32_t t = 100u; t <= 60000u; t += 100u) {
       bc.speedKph = 60.0f;
       bc.speedMs = t;
+      bc.rpm = 1800u;
+      bc.rpmMs = t;
       tripUpdate(s, bc, t);
     }
     bc.odometerDm = 110u;       // 1.0 km covered
@@ -239,6 +243,8 @@ TEST_MAIN_BEGIN()
     for (uint32_t t = 60100u; t <= 120000u; t += 100u) {
       bc.speedKph = 0.0f;
       bc.speedMs = t;
+      bc.rpm = 750u;          // idling at the lights
+      bc.rpmMs = t;
       tripUpdate(s, bc, t);
     }
 
@@ -246,6 +252,70 @@ TEST_MAIN_BEGIN()
     // 1 km in ~60 s of movement = 60 km/h, not the 30 that total time gives.
     CHECK_NEAR(tripAvgKph(s.t[TRIP_A]), 60.0f, 1.0f);
     CHECK(s.t[TRIP_A].elapsedMs > s.t[TRIP_A].movingMs);
+  }
+
+  // -------------------------------------------------------------------------
+  // A trip does not run while the ENGINE does not
+  //
+  // Ignition on, engine off: the bus is alive and broadcasting, so without this
+  // a trip racks up time for as long as anyone sits there with the radio on.
+  // And a car rolled or towed with the engine off must not add distance either
+  // -- there is no fuel behind those kilometres.
+  // -------------------------------------------------------------------------
+  {
+    TripSet s;
+    tripSetInit(s);
+    BroadcastState bc;
+
+    // Drive 1 km with the engine running.
+    bc.rpm = 1500u; bc.rpmMs = 1u;
+    bc.speedKph = 60.0f; bc.speedMs = 1u;
+    bc.odometerDm = 1000u; bc.odometerMs = 1u;
+    tripUpdate(s, bc, 1u);
+    for (uint32_t t = 100u; t <= 10000u; t += 100u) {
+      bc.rpmMs = t; bc.speedMs = t;
+      tripUpdate(s, bc, t);
+    }
+    bc.odometerDm = 1010u; bc.odometerMs = 10000u;
+    tripUpdate(s, bc, 10000u);
+    const float km = tripKm(s.t[TRIP_A]);
+    const uint32_t elapsed = s.t[TRIP_A].elapsedMs;
+    CHECK_NEAR(km, 1.0f, 0.001f);
+    CHECK(elapsed > 9000u);
+
+    // Now switch the engine off and sit there for a minute, ROLLING 2 km.
+    for (uint32_t t = 10100u; t <= 70000u; t += 100u) {
+      bc.rpm = 0u; bc.rpmMs = t;
+      bc.speedKph = 0.0f; bc.speedMs = t;
+      tripUpdate(s, bc, t);
+    }
+    bc.odometerDm = 1030u; bc.odometerMs = 70000u;
+    tripUpdate(s, bc, 70000u);
+
+    CHECK_NEAR(tripKm(s.t[TRIP_A]), km, 0.001f);        // no distance
+    CHECK(s.t[TRIP_A].elapsedMs == elapsed);            // and no time
+  }
+
+  // -------------------------------------------------------------------------
+  // A STALE rpm is not the same as an engine that is off
+  //
+  // A link dropout while driving must pause the clock but must never delete the
+  // distance covered during it -- the anchor stays put, so the kilometres
+  // appear as soon as the odometer is heard again.
+  // -------------------------------------------------------------------------
+  {
+    TripSet s;
+    tripSetInit(s);
+    BroadcastState bc;
+    bc.rpm = 1500u; bc.rpmMs = 1u;
+    bc.odometerDm = 2000u; bc.odometerMs = 1u;
+    tripUpdate(s, bc, 1u);
+
+    // Ten seconds with nothing heard at all, then the odometer reappears
+    // 1 km further on. rpmMs is long stale by now.
+    bc.odometerDm = 2010u; bc.odometerMs = 20000u;
+    tripUpdate(s, bc, 20000u);
+    CHECK_NEAR(tripKm(s.t[TRIP_A]), 1.0f, 0.001f);      // distance survived
   }
 
   // -------------------------------------------------------------------------

@@ -1,13 +1,18 @@
 #pragma once
 // Trip meters.
 //
-// Two of them, both accumulating the same four quantities:
+// Three of them, all accumulating the same four quantities:
 //
 //   TRIP_A      -- the driver's own meter. Survives a key cycle (see TripStore)
 //                  and is only cleared by a long press.
+//   TRIP_B      -- a second one, identical in every respect. Two exist so a
+//                  long-running total (a tank, a month) can be kept while a
+//                  short one (a leg, an errand) is reset freely. One meter
+//                  cannot do both: whichever question you ask it, resetting
+//                  destroys the answer to the other.
 //   TRIP_START  -- since this box powered up. Cleared on every boot, which is
-//                  what makes it different from TRIP_A and the reason both
-//                  exist.
+//                  what makes it different from the other two and the reason
+//                  all three exist.
 //
 // DISTANCE comes from the odometer broadcast (0x014), never from integrating
 // speed. The odometer is 100 m per count and is the car's own number, so a trip
@@ -21,8 +26,12 @@
 // PURE: no ESP-IDF, no Arduino.
 #include <stdint.h>
 
+// ORDER IS THE UI's CYCLE ORDER. The TRIP page steps through these on a double
+// tap, so TRIP_START sits last: the two resettable meters are adjacent, and the
+// one that cannot be reset at all is not between them.
 enum TripId : uint8_t {
   TRIP_A = 0,
+  TRIP_B,
   TRIP_START,
   TRIP_COUNT,
 };
@@ -30,6 +39,22 @@ enum TripId : uint8_t {
 // Below this the car counts as stopped, for "moving time" and average speed.
 // Not zero: a stationary car still reports a fraction of a km/h now and then.
 #define TRIP_MOVING_KPH 2.0f
+
+// Below this the engine is not running, and a trip does not accumulate at all.
+//
+// The case this exists for is the ignition ON with the engine OFF -- accessory,
+// or sitting with the radio on. The bus is alive and broadcasting, so without
+// this a trip would quietly rack up elapsed time for as long as anyone sat
+// there, and FROM START would report a journey mostly made of not driving.
+//
+// It stops DISTANCE too, not just the clock: the odometer anchor is carried
+// forward across the pause, so a car rolled or towed with the engine off adds
+// nothing -- there is no fuel to attribute to it, and counting the distance
+// alone would drag L/100 down by an amount nobody could explain.
+//
+// But only when rpm is LIVE and below this. A stale rpm means we do not know,
+// and an unknown engine must not cost the trip its distance -- see tripUpdate.
+#define TRIP_RUNNING_RPM 300u
 
 // Longest gap a single fuel sample is allowed to represent. Beyond this the
 // interval is DROPPED, not clamped: a dropped interval under-reads by a known,
@@ -92,6 +117,19 @@ float tripKm(const Trip& t);
 float tripLitres(const Trip& t);
 float tripL100(const Trip& t);
 float tripAvgKph(const Trip& t);
+
+// What the fuel this trip burned cost, at `pricePerLitre`.
+//
+// Negative whenever tripLitres() is, and for the same reason: a cost of 0.00
+// on a trip that has not integrated any fuel yet is a confident lie, where a
+// dash is not. A non-positive price is also treated as "cannot say" -- there
+// is no sensible cost to quote when nobody has told the instrument what fuel
+// costs.
+//
+// The only input here that is not measured is the price, which the driver
+// types in. That makes this the one readout on the instrument whose accuracy
+// is the driver's responsibility rather than the bus's.
+float tripCost(const Trip& t, float pricePerLitre);
 
 // Smoothed instantaneous flow in L/h, or negative when 0x1A7 has gone quiet --
 // which is what an engine that is not running looks like.

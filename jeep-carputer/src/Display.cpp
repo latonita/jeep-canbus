@@ -92,7 +92,9 @@ esp_err_t displayInit(void) {
   bus.sclk_io_num = LCD_PIN_SCK;
   bus.quadwp_io_num = -1;
   bus.quadhd_io_num = -1;
-  bus.max_transfer_sz = LCD_H_RES * FILL_ROWS * static_cast<int>(sizeof(uint16_t));
+  // Sized for the LVGL flush chunk, which is far larger than this file's own
+  // FILL_ROWS smoke-test buffer -- see LCD_MAX_TRANSFER_SZ in Board.h.
+  bus.max_transfer_sz = LCD_MAX_TRANSFER_SZ;
   err = spi_bus_initialize(LCD_HOST, &bus, SPI_DMA_CH_AUTO);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "spi_bus_initialize failed: %s", esp_err_to_name(err));
@@ -143,6 +145,12 @@ esp_err_t displayInit(void) {
   // Waveshare's vendored init sends raw 0x21 (INVON), so inversion is on for
   // this panel. Their own comment mislabels that command "Display On".
   ESP_ERROR_CHECK(esp_lcd_panel_invert_color(s_panel, true));
+  // Waveshare's own value, and DEAD as soon as the UI comes up: esp_lvgl_port
+  // rewrites MADCTL from disp_cfg.rotation inside lvgl_port_add_disp(), which
+  // is all-false, so the panel ends up mirror(false, false). Left in place
+  // because it is still what is on the glass for the smoke test between here
+  // and uiInit(), and because it is the vendor's documented init -- but do not
+  // change it expecting the dashboard to follow. Orientation is Ui.cpp's.
   ESP_ERROR_CHECK(esp_lcd_panel_mirror(s_panel, true, false));
   ESP_ERROR_CHECK(esp_lcd_panel_set_gap(s_panel, 0, 0));
   ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
