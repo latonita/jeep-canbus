@@ -196,6 +196,24 @@ uint8_t atFormatId11(uint16_t id, char* out, uint8_t cap) {
   return 3u;
 }
 
+uint8_t atFormatHexFixed(uint32_t v, uint8_t digits, char* out, uint8_t cap) {
+  if (out == NULL || cap == 0u) {
+    return 0u;
+  }
+  out[0] = '\0';
+  // digits + NUL must fit. 8 nibbles is the whole of a uint32_t; anything
+  // wider would be a caller bug silently producing leading zeroes forever.
+  if (digits == 0u || digits > 8u || static_cast<uint8_t>(digits + 1u) > cap) {
+    return 0u;
+  }
+  for (uint8_t i = 0u; i < digits; ++i) {
+    const uint8_t shift = static_cast<uint8_t>((digits - 1u - i) * 4u);
+    out[i] = hexDigit(static_cast<uint8_t>((v >> shift) & 0x0Fu));
+  }
+  out[digits] = '\0';
+  return digits;
+}
+
 uint8_t atFormatDec(uint16_t v, char* out, uint8_t cap) {
   if (out == NULL || cap < 2u) {
     if (out != NULL && cap > 0u) {

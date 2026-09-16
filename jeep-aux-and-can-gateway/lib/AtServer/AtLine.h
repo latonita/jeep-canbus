@@ -85,3 +85,12 @@ uint8_t atFormatId11(uint16_t id, char* out, uint8_t cap);
 
 // Unsigned decimal, no padding. Returns characters written.
 uint8_t atFormatDec(uint16_t v, char* out, uint8_t cap);
+
+// Fixed-width uppercase hex, exactly `digits` nibbles (1..8), most significant
+// first and zero padded -- the shape a host can slice at a known offset
+// instead of scanning for a separator. Nibbles above the requested width are
+// dropped rather than reported: the caller chose the width for a value it has
+// already ranged (AT@SM2 stamps millis() % 60000, never above 0xEA5F).
+// Returns characters written, 0 when cap is too small or digits is out of
+// range; out is NUL-terminated whenever cap >= 1.
+uint8_t atFormatHexFixed(uint32_t v, uint8_t digits, char* out, uint8_t cap);

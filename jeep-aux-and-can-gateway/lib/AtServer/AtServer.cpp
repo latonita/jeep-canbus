@@ -50,6 +50,19 @@ static bool onOff(const char* s, bool& out) {
   return false;
 }
 
+// Exact single-digit argument in "0".."maxDigit", for the AT@SM / AT@SML
+// levels. onOff() above only knows 0/1, and widening it would force every
+// boolean switch to re-check its own range. A digit outside the range is
+// rejected rather than clamped: accepting AT@SM4 as "on" would hide a host
+// typo behind output that looks correct.
+static bool levelDigit(const char* s, char maxDigit, uint8_t& out) {
+  if (s == NULL || s[0] < '0' || s[0] > maxDigit || s[1] != '\0') {
+    return false;
+  }
+  out = static_cast<uint8_t>(s[0] - '0');
+  return true;
+}
+
 // Free RAM arrives through IStatusProvider rather than being measured here.
 // Poking at __heap_start / __brkval is the platform's business, not the
 // protocol layer's, and having two copies of it in two libraries meant two
@@ -81,7 +94,7 @@ AtServer::AtServer(IByteIo& io, ICanBus& bus)
       headers_(false),
       autoFormat_(true),
       events_(false),
-      stream_(false),
+      stream_(SM_OFF),
       skipLf_(false) {
   isoTpFcDefaults(fc_);
 }
@@ -103,7 +116,9 @@ void AtServer::resetDefaults() {
   headers_ = false;
   autoFormat_ = true;
   events_ = false;
-  stream_ = false;
+  stream_ = SM_OFF;      // a fresh session is always classic ELM327 shape:
+                         // silent at the prompt, and when re-enabled with
+                         // AT@SM1 unstamped and ELM-shaped, never LAWICEL
   skipLf_ = false;
   // streamDropped_ deliberately survives ATZ. It is a diagnostic counter, not
   // a session setting -- same reasoning as the CAN rx/tx/err counters, which
@@ -137,7 +152,10 @@ bool AtServer::idle() const {
 void AtServer::safeState() {
   // The stream is unsolicited output; a board going to a safe state must go
   // quiet on the link, not keep talking.
-  stream_ = false;
+  // SM_OFF drops the timestamp and the LAWICEL format with it -- they are all
+  // one field, and a board on its way to a safe state has no business
+  // remembering a formatting preference it cannot honour.
+  stream_ = SM_OFF;
   if (state_ != ST_IDLE) {
     state_ = ST_IDLE;
     mfTotal_ = 0u;
@@ -201,7 +219,27 @@ void AtServer::writePrompt() {
   io_.writeByte('>');
 }
 
-void AtServer::writeFrame(const CanFrame& frame, bool forceHeader) {
+// The per-format views of stream_, shared by the queries and by AT@ST so the
+// two can never disagree. Each is truthful about ITS format only: in a LAWICEL
+// mode ELM-format streaming really is off, and vice versa.
+uint8_t AtServer::elmLevel() const {
+  return (stream_ <= SM_ELM_TS32) ? stream_ : 0u;
+}
+
+uint8_t AtServer::lawicelLevel() const {
+  return lawicel() ? static_cast<uint8_t>(stream_ - 3u) : 0u;
+}
+
+uint32_t AtServer::tsValue() const {
+  // The 4-nibble widths are bit-exact LAWICEL "Z1": a 0..59999 millisecond
+  // counter, which always fits in 4 nibbles (59999 == 0xEA5F). The 8-nibble
+  // widths hand over the raw counter so the host keeps the full ~49.7-day
+  // range without unwrapping anything. Keyed off tsChars() rather than off the
+  // level, so adding a level cannot leave this behind.
+  return (tsChars() == 4u) ? (nowMs_ % 60000UL) : nowMs_;
+}
+
+void AtServer::writeFrame(const CanFrame& frame, bool forceHeader, bool stamp) {
   if (forceHeader) {
     char idbuf[4];
     (void)atFormatId11(frame.id, idbuf, sizeof(idbuf));
@@ -217,7 +255,72 @@ void AtServer::writeFrame(const CanFrame& frame, bool forceHeader) {
     (void)atFormatHexBytes(frame.data, len, buf, sizeof(buf), spaces_);
     io_.writeBytes(buf);
   }
+  // Appended, never prefixed -- see the AT@SM note in AtServer.h. With ATS1
+  // one space separates it from the data; with ATS0 the line stays a single
+  // unbroken hex run of odd length, which is what the host demux keys on.
+  const uint8_t tsw = stamp ? tsChars() : 0u;
+  if (tsw != 0u) {
+    char ts[9];                        // 8 nibbles + NUL, stack only
+    if (spaces_) {
+      io_.writeByte(' ');
+    }
+    (void)atFormatHexFixed(tsValue(), tsw, ts, sizeof(ts));
+    io_.writeBytes(ts);
+  }
   writeTerm();
+}
+
+// Dispatch on the active format. Kept as one call so the two unsolicited
+// producers cannot end up disagreeing about which format the link is in.
+void AtServer::writeStreamFrame(const CanFrame& frame) {
+  if (lawicel()) {
+    writeLawicelFrame(frame);
+  } else {
+    writeFrame(frame, true, true);
+  }
+}
+
+// One frame in LAWICEL/SLCAN wire format:
+//   't' + 3 hex id + 1 hex DLC + 2 hex per data byte + stamp + CR
+// See the AT@SML notes in AtServer.h for why 't' is lowercase, why spaces_ and
+// linefeed_ are ignored here, and what breaks if they are not.
+void AtServer::writeLawicelFrame(const CanFrame& frame) {
+  // Never trust len -- same guard as writeFrame(). Here it is also the DLC
+  // nibble the host sizes its read from, so it MUST describe the bytes that
+  // actually go out, not whatever the driver claimed.
+  const uint8_t len = (frame.len > CAN_MAX_DLC) ? CAN_MAX_DLC : frame.len;
+
+  io_.writeByte('t');
+
+  char buf[CAN_MAX_DLC * 2u + 1u];   // 17 stack bytes, reused; no separators
+
+  (void)atFormatId11(frame.id, buf, sizeof(buf));
+  io_.writeBytes(buf);
+
+  (void)atFormatHexFixed(len, 1u, buf, sizeof(buf));   // DLC, one nibble
+  io_.writeBytes(buf);
+
+  if (len != 0u) {
+    // spaces_ is deliberately not consulted: one space breaks every slcan
+    // parser, and LAWICEL has no space variant to fall back on.
+    (void)atFormatHexBytes(frame.data, len, buf, sizeof(buf), false);
+    io_.writeBytes(buf);
+  }
+
+  // AT@SML1 carries no stamp at all -- that is the level stock slcan tooling
+  // expects. Tested explicitly rather than leaning on atFormatHexFixed()
+  // returning an empty string for a zero width, so "nothing is emitted here"
+  // is visible at the call site instead of two functions away.
+  const uint8_t tsw = tsChars();
+  if (tsw != 0u) {
+    (void)atFormatHexFixed(tsValue(), tsw, buf, sizeof(buf));
+    io_.writeBytes(buf);
+  }
+
+  // CR only, and deliberately NOT writeTerm(): an slcan parser splits on CR,
+  // so an ATL1 linefeed would arrive as a LEADING LF on the next line and cost
+  // a whole frame, not just a cosmetic newline.
+  io_.writeByte('\r');
 }
 
 void AtServer::finish(Reply r) {
@@ -314,13 +417,20 @@ void AtServer::pumpInput() {
 
 // ---- CAN frames in ------------------------------------------------------
 
-void AtServer::onFrame(const CanFrame& frame) {
+void AtServer::onFrame(const CanFrame& frame, uint32_t nowMs) {
+  // Stamp from the drain-loop sample, not from tick(): tick() runs after the
+  // drain, so its nowMs_ is one iteration behind by the time a frame gets
+  // here. See the onFrame() comment in AtServer.h.
+  nowMs_ = nowMs;
+
   switch (state_) {
     case ST_MONITOR:
       // ATMA is unchanged: filtered, and it blocks rather than drops, because
       // existing captures and scripts depend on getting everything.
       if (frameAccepted(frame)) {
-        writeFrame(frame, true);   // AT MA always shows the id
+        // Active format, not a fixed one: see "which lines get which format"
+        // in AtServer.h. AT MA always shows the id either way.
+        writeStreamFrame(frame);
       }
       break;
 
@@ -334,10 +444,11 @@ void AtServer::onFrame(const CanFrame& frame) {
       // up front in cmdData() and this cannot arise. Without streaming the old
       // "no filter means listen to every responder" behaviour is preserved
       // exactly.
-      const bool isResponse = frameAccepted(frame) && (mask_ != 0u || !stream_);
+      const bool isResponse =
+          frameAccepted(frame) && (mask_ != 0u || stream_ == 0u);
       if (isResponse) {
         noteResponseFrame(frame);
-      } else if (stream_) {
+      } else if (stream_ != 0u) {
         streamFrame(frame);
       }
       break;
@@ -346,8 +457,8 @@ void AtServer::onFrame(const CanFrame& frame) {
     case ST_IDLE:
     default:
       // Classic ELM327 drops these -- nobody is listening at a bare prompt.
-      // With AT@SM1 they are the whole point.
-      if (stream_) {
+      // With AT@SM1 and up they are the whole point.
+      if (stream_ != 0u) {
         streamFrame(frame);
       }
       break;
@@ -364,11 +475,28 @@ void AtServer::onFrame(const CanFrame& frame) {
 void AtServer::streamFrame(const CanFrame& frame) {
   const uint8_t len = (frame.len > CAN_MAX_DLC) ? CAN_MAX_DLC : frame.len;
 
-  // Exactly what writeFrame() below is about to emit: 3 id chars, an optional
-  // separating space, the hex bytes, and the terminator.
-  int need = 3 + (spaces_ ? 1 : 0) + (linefeed_ ? 2 : 1);
-  if (len != 0u) {
-    need += spaces_ ? (int)(len * 3u - 1u) : (int)(len * 2u);
+  // Exactly what the emitter below is about to write, derived from the same
+  // tsChars()/lawicel() helpers it uses so the two cannot drift.
+  //
+  // The stamp MUST be counted here. Undercounting need turns the writableBytes
+  // test below into a lie, writeBytes() blocks on a full ring, and the failure
+  // mode is exactly the one the comment further down describes -- a stalled
+  // loop(), an overflowing MCP2515 and the car's audio dropping.
+  int need;
+  if (lawicel()) {
+    // 't' + 3 id + 1 DLC nibble + 2 per data byte + stamp + CR. No space (ATS
+    // is ignored) and no LF (ATL is ignored), unlike the ELM line below.
+    need = 1 + 3 + 1 + (int)(len * 2u) + (int)tsChars() + 1;
+  } else {
+    // 3 id chars, an optional separating space, the hex bytes, the stamp with
+    // its own optional separator, and the ATL-dependent terminator.
+    need = 3 + (spaces_ ? 1 : 0) + (linefeed_ ? 2 : 1);
+    if (len != 0u) {
+      need += spaces_ ? (int)(len * 3u - 1u) : (int)(len * 2u);
+    }
+    if (tsChars() != 0u) {
+      need += (int)tsChars() + (spaces_ ? 1 : 0);
+    }
   }
 
   // Ask before writing rather than writing and blocking. A busy-wait here
@@ -382,11 +510,11 @@ void AtServer::streamFrame(const CanFrame& frame) {
     }
     return;
   }
-  writeFrame(frame, true);
+  writeStreamFrame(frame);
 }
 
 void AtServer::noteResponseFrame(const CanFrame& frame) {
-  writeFrame(frame, headers_);
+  writeFrame(frame, headers_, false);   // responses are never stamped
   if (rxSeen_ < AT_FRAMES_MAX) {
     ++rxSeen_;
   } else {
@@ -707,21 +835,60 @@ AtServer::Reply AtServer::cmdCustom(const char* s) {
     return bench_->setBenchMode(flag) ? RP_OK : RP_QUERY;
   }
 
-  // AT@SM1 / AT@SM0 -> background frame stream on / off.
-  // AT@SM           -> query, prints 1 or 0.
+  // AT@SML0 -> LAWICEL/SLCAN stream off
+  // AT@SML1 -> LAWICEL format, no timestamp -- plain slcan, the level stock
+  //            python-can / slcand tooling actually expects (both default to
+  //            LAWICEL Z0, timestamps off)
+  // AT@SML2 -> LAWICEL format + 4 hex digits of millis() % 60000
+  // AT@SML3 -> LAWICEL format + 8 hex digits of raw millis()
+  // AT@SML  -> query, prints 0..3, mirroring AT@SM exactly.
+  //
+  // THIS MUST BE TESTED BEFORE AT@SM. after() matches whole prefixes, so
+  // after(s, "SM") happily matches "SML1" and hands back "L1", which is not a
+  // level: AT@SML1 would answer '?' and the command would look unimplemented
+  // while sitting right there. Unlike ST vs SM, where either order works, the
+  // order of these two is load-bearing.
+  a = after(s, PSTR("SML"));
+  if (a != NULL) {
+    if (a[0] == '\0') {
+      // Truthful about THIS format only: in an ELM stream mode the LAWICEL
+      // stream really is off, and vice versa below.
+      io_.writeByte(static_cast<char>('0' + lawicelLevel()));
+      writeTerm();
+      return RP_NONE;
+    }
+    uint8_t level = 0u;
+    if (!levelDigit(a, '3', level)) {
+      return RP_QUERY;
+    }
+    // One field, so selecting LAWICEL cannot leave the ELM stream running as
+    // well -- see StreamMode in AtServer.h.
+    stream_ = (level == 0u) ? static_cast<uint8_t>(SM_OFF)
+                            : static_cast<uint8_t>(SM_LAW + level - 1u);
+    return RP_OK;
+  }
+
+  // AT@SM0 -> background frame stream off
+  // AT@SM1 -> stream on, ELM format, no timestamp (unchanged since 2.1)
+  // AT@SM2 -> ELM format + 4 hex digits of millis() % 60000 (LAWICEL "Z1")
+  // AT@SM3 -> ELM format + 8 hex digits of raw millis()
+  // AT@SM  -> query, prints the ELM level; 0 and 1 answer exactly as before.
   // Checked after AT@ST: both start with 'S', and after() compares the whole
   // prefix, so there is no ambiguity either way.
   a = after(s, PSTR("SM"));
   if (a != NULL) {
     if (a[0] == '\0') {
-      io_.writeByte(stream_ ? '1' : '0');
+      // A LAWICEL mode reports 0 here: ELM-format streaming really is off.
+      io_.writeByte(static_cast<char>('0' + elmLevel()));
       writeTerm();
       return RP_NONE;
     }
-    if (!onOff(a, flag)) {
+    uint8_t level = 0u;
+    if (!levelDigit(a, '3', level)) {
       return RP_QUERY;
     }
-    stream_ = flag;
+    // Assigning the ELM level also turns LAWICEL off, for free.
+    stream_ = level;
     return RP_OK;
   }
 
@@ -839,11 +1006,18 @@ AtServer::Reply AtServer::statusLine() {
   (void)atFormatDec(info.reinits, num, sizeof(num));
   io_.writeBytes(num);
 
-  // Stream state, and what it has had to throw away. SD= must stay 0; a
-  // non-zero value means the TX ring filled and frames were dropped rather
-  // than blocking -- raise SERIAL_TX_BUFFER_SIZE (see platformio.ini).
+  // Stream state, and what it has had to throw away. SM= and SML= are the
+  // per-format levels 0..3, the same digits their own queries return -- NOT
+  // the raw StreamMode. Printing the raw 0..6 in SM= would have kept the line
+  // one field shorter, but it would make SM= a lie to every host that reads it
+  // as "the AT@SM level", and a wrong field is worse than a new one. SML= is
+  // appended inside the stream group so the whole group stays adjacent.
+  // SD= must stay 0; a non-zero value means the TX ring filled and frames were
+  // dropped rather than blocking -- raise SERIAL_TX_BUFFER_SIZE (platformio.ini).
   writeP(PSTR(" SM="));
-  io_.writeByte(stream_ ? '1' : '0');
+  io_.writeByte(static_cast<char>('0' + elmLevel()));
+  writeP(PSTR(" SML="));
+  io_.writeByte(static_cast<char>('0' + lawicelLevel()));
   writeP(PSTR(" SD="));
   (void)atFormatDec(streamDropped_, num, sizeof(num));
   io_.writeBytes(num);
@@ -860,7 +1034,7 @@ AtServer::Reply AtServer::cmdData(const char* s) {
   // the broadcast traffic flowing past it, so a request without one cannot be
   // collected. Say so, rather than silently mis-attributing whatever arrives
   // first -- see the comment in onFrame(). ATCRA (or ATCF+ATCM) first.
-  if (stream_ && mask_ == 0u) {
+  if (stream_ != 0u && mask_ == 0u) {
     return RP_QUERY;
   }
   if (atParseHexBytes(s, buf, CAN_MAX_DLC, n) != AT_HEX_OK || n == 0u) {

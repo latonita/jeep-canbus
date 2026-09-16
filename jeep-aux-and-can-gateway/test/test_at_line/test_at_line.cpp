@@ -258,6 +258,48 @@ static void test_format_dec(void) {
   TEST_ASSERT_EQUAL_UINT8(0, atFormatDec(1234u, small, sizeof(small)));
 }
 
+static void test_format_hex_fixed(void) {
+  char out[9];
+  TEST_ASSERT_EQUAL_UINT8(4, atFormatHexFixed(0u, 4, out, sizeof(out)));
+  TEST_ASSERT_EQUAL_STRING("0000", out);
+  TEST_ASSERT_EQUAL_UINT8(8, atFormatHexFixed(0u, 8, out, sizeof(out)));
+  TEST_ASSERT_EQUAL_STRING("00000000", out);
+
+  // 0xEA5F == 59999, the top of the AT@SM2 (LAWICEL Z1) range: it must still
+  // fit in 4 nibbles, because the wire format promises exactly four.
+  TEST_ASSERT_EQUAL_UINT8(4, atFormatHexFixed(0xEA5FuL, 4, out, sizeof(out)));
+  TEST_ASSERT_EQUAL_STRING("EA5F", out);
+  TEST_ASSERT_EQUAL_UINT8(4, atFormatHexFixed(0xFFFFuL, 4, out, sizeof(out)));
+  TEST_ASSERT_EQUAL_STRING("FFFF", out);
+  TEST_ASSERT_EQUAL_UINT8(8, atFormatHexFixed(0xFFFFFFFFuL, 8, out, sizeof(out)));
+  TEST_ASSERT_EQUAL_STRING("FFFFFFFF", out);
+
+  // One nibble: the LAWICEL DLC field (AT@SML) is formatted through here.
+  TEST_ASSERT_EQUAL_UINT8(1, atFormatHexFixed(0uL, 1, out, sizeof(out)));
+  TEST_ASSERT_EQUAL_STRING("0", out);
+  TEST_ASSERT_EQUAL_UINT8(1, atFormatHexFixed(8uL, 1, out, sizeof(out)));
+  TEST_ASSERT_EQUAL_STRING("8", out);
+
+  // Narrower width keeps the low nibbles and drops the rest, no error.
+  TEST_ASSERT_EQUAL_UINT8(4, atFormatHexFixed(0x1234ABCDuL, 4, out, sizeof(out)));
+  TEST_ASSERT_EQUAL_STRING("ABCD", out);
+}
+
+static void test_format_hex_fixed_guards(void) {
+  char small[4];
+  // 4 digits need 5 bytes with the NUL -- must refuse, not truncate.
+  TEST_ASSERT_EQUAL_UINT8(0, atFormatHexFixed(0x1234uL, 4, small, sizeof(small)));
+  TEST_ASSERT_EQUAL_STRING("", small);
+  char exact[5];
+  TEST_ASSERT_EQUAL_UINT8(4, atFormatHexFixed(0x1234uL, 4, exact, sizeof(exact)));
+  TEST_ASSERT_EQUAL_STRING("1234", exact);
+
+  char plenty[16];
+  TEST_ASSERT_EQUAL_UINT8(0, atFormatHexFixed(1uL, 0, plenty, sizeof(plenty)));
+  TEST_ASSERT_EQUAL_UINT8(0, atFormatHexFixed(1uL, 9, plenty, sizeof(plenty)));
+  TEST_ASSERT_EQUAL_UINT8(0, atFormatHexFixed(1uL, 4, plenty, 0));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_cr_terminates);
@@ -283,5 +325,7 @@ int main(int, char**) {
   RUN_TEST(test_format_id11);
   RUN_TEST(test_format_hex_capacity_guard);
   RUN_TEST(test_format_dec);
+  RUN_TEST(test_format_hex_fixed);
+  RUN_TEST(test_format_hex_fixed_guards);
   return UNITY_END();
 }

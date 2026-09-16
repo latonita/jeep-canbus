@@ -296,7 +296,10 @@ void loop() {
 #if FEATURE_AT_SERVER
     // AtServer never calls receive() itself -- this is its only source of
     // frames, and without it every request would answer NO DATA.
-    gAtServer.onFrame(frame);
+    // `now` rather than a fresh millis(): one sample per iteration, and it is
+    // also what AT@SM2/3 stamps the frame with. gAtServer.tick() runs after this
+    // loop, so it is too late to be the stamp's source.
+    gAtServer.onFrame(frame, now);
 #endif
   }
 
