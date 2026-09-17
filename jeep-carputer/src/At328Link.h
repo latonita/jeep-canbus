@@ -7,19 +7,47 @@
 // Bluetooth, by design.
 //
 // Session settings chosen here, and why:
+//   AT@SML0 / AT@SM0     -- SILENCE FIRST. Sent before anything else, because
+//                           the 328 is not reset by us opening the port and may
+//                           be streaming right now from a previous session, in
+//                           a format we have not agreed to yet. See begin().
 //   ATE0   echo off      -- we would otherwise have to skip our own commands
 //   ATL0   no linefeeds  -- lines end with a bare CR, one delimiter to handle
-//   ATS0   no spaces     -- a frame line becomes exactly 3 id nibbles + 2n
-//                           data nibbles, which parses deterministically
+//   ATS0   no spaces     -- a RESPONSE line becomes exactly 3 id nibbles + 2n
+//                           data nibbles, which parses deterministically. It no
+//                           longer governs the broadcast shape: LAWICEL lines
+//                           ignore ATS and ATL entirely.
 //   ATH1   headers on    -- we must know which id answered
 //   ATCAF0 no formatting -- we build the ISO-TP PCI byte ourselves
-//   AT@SM<n> stream level -- 1 = frames in the background, 2 and 3 the same
-//                           with a 4- or 8-digit millisecond stamp appended
-//                           (see setStreamLevel; 1 is the default and is what
-//                           this has always sent)
+//   AT@SML2 stream       -- LAWICEL/SLCAN frames in the background, each with
+//                           four hex digits of the adapter's millis() % 60000.
+//                           See setStreamFormat() for the ladder this falls
+//                           down when an older adapter refuses it.
+//
+// WHY LAWICEL AND NOT THE ELM SHAPE, since this class asked for AT@SM1 for its
+// whole life before now. Two reasons, and the second is the one that mattered:
+//
+//   * A leading 't' marks a frame line outright, so demuxing the stream from the
+//     command replies stops being an arithmetic argument about odd lengths and
+//     becomes one character.
+//   * THE STAMP WIDTH BECOMES MEASURABLE. In the ELM shape the data length is
+//     only implied by the hex count, so a 19-character line is either 8 data
+//     bytes unstamped or 6 plus a 4-digit stamp -- both valid, and the width had
+//     to be TOLD to the parser with no way to check it. LAWICEL carries a DLC
+//     nibble, so the width is arithmetic (core/LinkLine.h spells it out) and a
+//     mismatch between what we asked for and what arrives is a complaint in the
+//     log instead of a dashboard full of plausible wrong numbers.
+//
+// The stamp is what makes the change worth making rather than merely tidier.
+// Broadcast frames now reach the sink with the time the GATEWAY saw them, mapped
+// onto our clock by core/StreamClock.h, so core/Trip.cpp's fuel integral and
+// core/Accel.cpp's splits are measured on the car's intervals rather than on
+// whenever the reader task got round to the line.
 #include <stdint.h>
 
 #include "CarLink.h"
+#include "LinkLine.h"
+#include "StreamClock.h"
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -37,6 +65,19 @@
 // Depth of the command-reply queue. A command produces at most a couple of
 // lines plus a prompt; the slack is for AT@EV event lines arriving between.
 #define AT328_REPLY_Q_DEPTH  8u
+
+// Which shape the adapter has agreed to stream in.
+//
+// Not a cosmetic difference: it selects which parser the reader hands each line
+// to, and the two disagree about where a frame's data ends. It is set once, by
+// begin(), while the session is coming up -- the reader takes a single copy per
+// line so a re-negotiation landing mid-line cannot have the classifier and the
+// decoder read the same characters differently.
+enum LinkWire : uint8_t {
+  LINK_WIRE_NONE = 0,   // not streaming: the ATMA windows, or nothing at all
+  LINK_WIRE_LAWICEL,    // AT@SML: 't' + id + DLC + data + stamp, bare CR
+  LINK_WIRE_ELM,        // AT@SM: the ELM327 shape, the pre-2.2 arrangement
+};
 
 // One classified non-frame line, on its way back to whoever sent a command.
 struct At328Reply {
@@ -75,42 +116,68 @@ class At328Link : public ICarLink {
   // waited for. Set once, before begin(); without it broadcasts are dropped.
   void setFrameSink(At328FrameSink sink) { sink_ = sink; }
 
-  // True when the adapter accepted our AT@SM level: it streams frames in the
-  // background and requests no longer take turns with monitoring. False
+  // True when the adapter accepted one of our stream levels: it streams frames
+  // in the background and requests no longer take turns with monitoring. False
   // against a 2.0 adapter, which still needs the ATMA alternation.
   bool streaming() const { return streaming_; }
 
-  // Which AT@SM level to ask for, in begin(). 1 = stream, unstamped -- the
-  // default, and byte-for-byte the session this has always configured. 2 and 3
-  // add a 4- or 8-digit millisecond stamp to every streamed line.
+  // Which shape the stream is actually in, LINK_WIRE_NONE when it is off.
+  LinkWire wire() const { return (LinkWire)wire_; }
+
+  // Which format and level to ask for, in begin(). The default is
+  // LINK_WIRE_LAWICEL at level 2 -- AT@SML2, LAWICEL with the 4-digit rolling
+  // stamp -- and that is what the whole of this class is now written around.
   //
-  // Must be set BEFORE begin(), because begin() is what sends the level and
-  // the width has to be known before the reader classifies the first line.
-  // Levels other than 1..3 are refused: 0 would turn the stream off through a
-  // back door, and an unknown level would have us decoding against a width the
-  // adapter never agreed to, which silently files every frame as a reply.
-  void setStreamLevel(uint8_t level);
+  // Must be set BEFORE begin(), because begin() is what negotiates and the
+  // reader has to know which parser to use before it classifies the first line.
+  // Levels outside 1..3 are refused: 0 would turn the stream off through a door
+  // that looks like configuration, and the way to run without a stream is an
+  // adapter that refuses the command.
+  //
+  // THE FALLBACK LADDER IS NOT CONFIGURABLE, and it is three rungs because each
+  // one is a real adapter:
+  //
+  //   AT@SML2  the 2.1 gateway in the radio. Stamped LAWICEL, both halves of the
+  //            link live at once, and the reader can CHECK the stamp width.
+  //   AT@SM1   a 2.1 gateway that somehow knows AT@SM and not AT@SML. Unstamped
+  //            ELM-shaped streaming: the overlap of requests and broadcasts is
+  //            kept, the timestamps are not. Strictly better than windows, so
+  //            worth a rung rather than falling straight through.
+  //   ATMA     a 2.0 adapter. Modal windows -- listen, go deaf, spend a few
+  //            requests -- which is what this firmware did before 2.1.
+  void setStreamFormat(LinkWire wire, uint8_t level);
 
   // The level the adapter actually ACCEPTED, 0 when it is not streaming. Not
-  // necessarily the one asked for: a gateway that knows AT@SM1 but not the
-  // stamped levels answers '?' and begin() retries at 1 rather than giving up
-  // the stream altogether.
+  // necessarily the one asked for -- see the ladder above.
   uint8_t streamLevel() const { return streamLevel_; }
 
-  // Stamp width in characters (0, 4 or 8) implied by that accepted level. The
-  // only value the classifier and the parser are allowed to split a line with.
+  // The stamp width in characters (0, 4 or 8) the accepted level produces.
+  //
+  // On the LAWICEL path this is what we ASKED FOR and the reader compares every
+  // line's DERIVED width against it, so a disagreement is logged rather than
+  // decoded. On the ELM path it is the only width there is, because that shape
+  // cannot be measured -- which is the asymmetry the whole switch was about.
   uint8_t stampWidth() const { return stampChars_; }
 
-  // The adapter's own clock, as read off the most recently decoded stream
-  // line. False while the level is unstamped or before the first stamped line.
+  // Stop the stream: AT@SML0, or AT@SM0 when the ELM fallback is what is
+  // running. Safe to call at any time and on any adapter -- a 2.0 board answers
+  // '?' and there was nothing to stop.
   //
-  // NOT paired with any particular frame, deliberately: the sink is still
-  // handed the HOST clock (see readerLoop) and this is a latch written by the
-  // reader task and read from another, so it is a SAMPLE of the adapter's
-  // clock -- enough to estimate the offset between the two timebases, not
-  // enough to time one frame. Turning it into per-frame timing means carrying
-  // it alongside the frame, and CanFrame must not grow: it travels through
-  // frameQ_, so a field costs RAM in every one of AT328_FRAME_Q_DEPTH slots.
+  // begin() uses it to get to a KNOWN QUIET STATE before configuring anything,
+  // which is the one place it is load-bearing. The 328 is flashed over ICSP and
+  // has no bootloader on these pins, so opening the port does not reset it: it
+  // may be mid-stream from a previous session of ours, in a format this session
+  // has not agreed to, and every one of those frame lines would then be
+  // classified against the wrong parser and pile into replyQ_ -- which is eight
+  // slots deep and is where the answer to ATZ has to arrive.
+  LinkStatus streamStop();
+
+  // The adapter's own clock, as read off the most recently decoded stream line:
+  // RAW, rolling, in the gateway's epoch. False before the first stamped line.
+  //
+  // This is the unmapped sample, kept for diagnostics only -- what the sink gets
+  // is the MAPPED value, see streamClock() below and readerLoop. Two clocks in
+  // one accessor would be the kind of ambiguity this file exists to avoid.
   bool lastStampMs(uint32_t& out) const {
     if (!haveStamp_) {
       return false;
@@ -118,6 +185,25 @@ class At328Link : public ICarLink {
     out = lastStampMs_;
     return true;
   }
+
+  // The mapping from the adapter's rolling stamp onto our timebase, for a
+  // diagnostics screen: sample count, rollovers crossed, offset resyncs, and
+  // streamClockSkewMs() -- the smallest transport latency it has observed.
+  //
+  // Returned by const reference and read from another task while the reader
+  // writes it. Every field is a naturally aligned word, nothing here decides
+  // anything, and a torn read costs one wrong number in a log line -- which is
+  // the same trade the volatile counters above make.
+  const StreamClock& streamClock() const { return clock_; }
+
+  // Stream lines whose DERIVED stamp width was not the one we asked for.
+  //
+  // Zero is the only healthy value and it is the whole reason for moving to a
+  // self-describing wire: on the ELM shape this quantity could not be measured
+  // at all, so the same disagreement showed up as two data bytes read as a time
+  // and nothing to count. Non-zero means the adapter is in a mode we did not
+  // set.
+  uint32_t stampWidthMismatches() const { return stampMismatch_; }
 
   // When the reader last pulled ANY complete line off the UART -- a frame, a
   // command reply, a prompt. Zero until the first one arrives.
@@ -151,11 +237,13 @@ class At328Link : public ICarLink {
 
   static uint32_t nowMs();
 
-  // `tsChars` is the configured stamp width, and `stampMs` is 0 when that is
-  // 0. Both the width and the line must be the pair linkClassifyLine() just
-  // accepted -- see the note in readerLoop about reading stampChars_ once.
-  static bool parseFrameLine(const char* line, uint16_t len, uint8_t tsChars,
-                             CanFrame& out, uint32_t& stampMs);
+  // NO frame parsing here: both decoders are core/LinkLine's, beside the
+  // classifier whose accepted length sets and timestamp widths they have to
+  // match exactly. As private statics of this class they sat in an ESP-IDF
+  // translation unit that no host test could link, so that agreement was prose;
+  // now one suite sweeps accept-iff-decode across both shapes. readerLoop()
+  // still owns WHICH PARSER and WHICH WIDTH -- see the note there about taking
+  // a single copy of wire_ and stampChars_ per line.
 
   uart_port_t port_;
   int         txPin_;
@@ -177,12 +265,20 @@ class At328Link : public ICarLink {
   // takes a single copy per line and uses it for both the classification and
   // the decode; begin() is the only writer and only while bringing the session
   // up. stampChars_ is derived from streamLevel_ and never set independently.
+  volatile uint8_t  wire_;         // LinkWire, the shape in force
   volatile uint8_t  streamLevel_;
   volatile uint8_t  stampChars_;
   volatile uint32_t lastStampMs_;
   volatile bool     haveStamp_;
+  volatile uint32_t stampMismatch_;
 
-  uint8_t     streamLevelReq_;   // what to ask for; 1 unless told otherwise
+  // Owned by the reader task, which is its only writer. Not volatile: it is a
+  // structure, so a single read cannot be atomic whatever the qualifier says,
+  // and the only cross-task reader is a diagnostics line.
+  StreamClock clock_;
+
+  uint8_t     wireReq_;            // what to ask for, LinkWire
+  uint8_t     streamLevelReq_;     // ...and at which level
 
   bool        ready_;
   bool        monitoring_;

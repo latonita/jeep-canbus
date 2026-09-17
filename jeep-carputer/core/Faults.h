@@ -129,3 +129,17 @@ bool faultsMuteFull(const FaultSet& s);
 // `unreachable`, `ecuCount` and `doneMs` -- all facts about the walk, not
 // about the list it produced.
 void faultsRemove(FaultSet& s, uint8_t index);
+
+// Find a fault by (ecu, code). Returns its index, or 0xFF if it is not here.
+//
+// This is how every REQUEST from the screen names a fault, and it exists as a
+// function because both the mute and the clear path had grown their own copy
+// of the same four-line loop -- which is three lines of agreement away from
+// the two controls disagreeing about which fault they are looking at.
+//
+// By (ecu, code) rather than by list position because the list is re-sorted at
+// the end of every scan, and the renderer reads a published snapshot that can
+// be a pass behind the live set on top of that. An index names whatever has
+// since moved into that row; for the erase, that is the one mistake that
+// cannot be undone.
+uint8_t faultsFind(const FaultSet& s, uint8_t ecu, uint16_t code);

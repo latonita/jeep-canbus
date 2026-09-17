@@ -451,4 +451,69 @@ TEST_MAIN_BEGIN()
     CHECK(s.count == 0u);
   }
 
+  // -------------------------------------------------------------------------
+  // faultsFind: how every request from the screen names a fault.
+  //
+  // Both the mute and the clear path had their own copy of this loop before it
+  // became a function, which is how two controls end up disagreeing about
+  // which fault they are pointing at.
+  // -------------------------------------------------------------------------
+  {
+    FaultSet s;
+    faultsInit(s);
+
+    // Nothing here: every question has the same safe answer.
+    CHECK_EQ(faultsFind(s, 0u, 0x0119u), 0xFF);
+    CHECK_EQ(faultsFind(s, 0xFFu, 0xFFFFu), 0xFF);
+
+    DtcRecord a[2];
+    a[0].code = 0x0119u;
+    a[0].status = 0x60u;
+    a[1].code = 0x0122u;
+    a[1].status = 0x60u;
+    DtcRecord b[1];
+    b[0].code = 0x0119u;          // SAME code, different module
+    b[0].status = 0x60u;
+    faultsBeginScan(s, 3u);
+    faultsRecord(s, 1u, a, 2u, false);
+    faultsRecord(s, 2u, b, 1u, false);
+    faultsEndScan(s, 1000u);
+    CHECK_EQ(s.count, 3);
+
+    // The PAIR is the key. The same code on two modules is two different
+    // faults, and matching on the code alone would clear the wrong one.
+    const uint8_t i1 = faultsFind(s, 1u, 0x0119u);
+    const uint8_t i2 = faultsFind(s, 2u, 0x0119u);
+    CHECK(i1 != 0xFFu);
+    CHECK(i2 != 0xFFu);
+    CHECK(i1 != i2);
+    CHECK_EQ(s.f[i1].ecu, 1);
+    CHECK_EQ(s.f[i2].ecu, 2);
+
+    // Present code, wrong module -> not found.
+    CHECK_EQ(faultsFind(s, 0u, 0x0119u), 0xFF);
+    // Present module, wrong code -> not found.
+    CHECK_EQ(faultsFind(s, 2u, 0x0122u), 0xFF);
+
+    // It survives a re-sort, which is the entire reason requests travel as
+    // (ecu, code) and not as an index.
+    const uint8_t before = faultsFind(s, 1u, 0x0122u);
+    CHECK_EQ(s.f[before].code, 0x0122u);
+    faultsRemove(s, faultsFind(s, 1u, 0x0119u));
+    const uint8_t after = faultsFind(s, 1u, 0x0122u);
+    CHECK(after != 0xFFu);
+    CHECK_EQ(s.f[after].code, 0x0122u);
+    CHECK_EQ(s.f[after].ecu, 1);
+    // Same fault, different row -- and the removed one is genuinely gone.
+    CHECK_EQ(faultsFind(s, 1u, 0x0119u), 0xFF);
+
+    // Rows PAST the count must not match. A shorter scan leaves stale slots
+    // behind, and matching one would name a fault the car no longer reports.
+    const uint16_t stale = s.f[s.count].code;
+    const uint8_t staleEcu = s.f[s.count].ecu;
+    if (stale != 0u || staleEcu != 0u) {
+      CHECK_EQ(faultsFind(s, staleEcu, stale), 0xFF);
+    }
+  }
+
 TEST_MAIN_END()

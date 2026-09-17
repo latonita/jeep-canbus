@@ -40,7 +40,36 @@ void broadcastClear(BroadcastState& st) {
   // pinning the panel bright and taking the wheel away.
   st.lightsOn = true;  st.lightsMs = 0u;
   st.lightsRaw = 0u;   st.dimmerByte0 = 0u;
+  // ON ITS OWN LINE, because being paired with something is how it got missed.
+  //
+  // These two were absent from this function until a host suite for Broadcast
+  // was finally written and failed on its first run. The reason they were easy
+  // to skip is worth recording: in the header `pedalRaw`/`pedalMs` sit BETWEEN
+  // `dimmerByte0` and `lightsMs`, so when the clear grouped `lightsMs` with the
+  // `lightsOn`/`lightsRaw` pair the pedal fields fell down the gap between two
+  // groupings that each looked complete.
+  //
+  // It was masked on the board -- the only caller clears `gBcast`, a
+  // file-scope static the C runtime has already zeroed -- so nothing would
+  // ever have shown it there. It was live everywhere else: a stack-local
+  // BroadcastState (the host harnesses use fifteen of them) or any future
+  // re-clear on link recovery. And the consequence is precisely the failure the
+  // launch gate exists to prevent, since main.cpp arms a run on
+  // `pedalRaw >= BC_PEDAL_KICKDOWN` gated only on the stamp's freshness: a
+  // surviving 0xEA with a plausible stamp confirms the launch of the next
+  // pull-away. Frozen, plausible and wrong.
+  st.pedalRaw = 0u;
+  st.pedalMs = 0u;
   st.flowRaw = 0u;     st.flowMs = 0u;
+  // The compass trio, ON THEIR OWN LINES, for the reason above: these three
+  // share ONE stamp, and a survivor here is a confident cardinal direction
+  // with a plausible age on a bus that has said nothing yet.
+  st.fuelRaw = 0u;     st.fuelMs = 0u;
+  st.btnRaw = 0u;      st.btnMs = 0u;
+  st.headingOctant = 0u;
+  st.headingRaw = 0u;
+  st.headingStatus = 0u;
+  st.headingMs = 0u;
   st.frames = 0u;      st.decoded = 0u;
 }
 
@@ -182,6 +211,67 @@ bool broadcastApply(BroadcastState& st, const CanFrame& f, uint32_t nowMs) {
       st.lightsRaw = f.data[0];
       st.lightsOn = (f.data[0] == 0x02u);
       st.lightsMs = nowMs;
+      break;
+
+    case 0x394u:              // RAR head unit: mode mirror + button bits
+      // BYTE 3, on the owner's correction. It was read from byte 4 first,
+      // because that is what CAN-ID-byte-map.md assigns the button bits to --
+      // and NOTHING IN ANY CAPTURE COULD HAVE CAUGHT THE MISTAKE: b3 and b4 are
+      // both 0x00 in all 5510 frames of 0x394 in this repository, so the data
+      // cannot tell the two apart. Only somebody pressing the button can.
+      //
+      // b0..b2 mirror the radio mode already on 0x09F and nothing here reads
+      // them, so they are not stored -- an unused field is one somebody later
+      // has to work out whether they may trust.
+      if (f.len < 4u) return false;
+      st.btnRaw = f.data[3];
+      st.btnMs = nowMs;
+      break;
+
+    case 0x159u:              // tank level, ~1 s
+      if (f.len < 6u) return false;
+      // B4 IS THE VALIDITY FLAG, and it is this id's sentinel in place of the
+      // all-ones test used everywhere else in this file. That test could not
+      // work here: `b0=FE` with `b1:b3=FF FF FF` is the NORMAL payload, so it
+      // would reject every frame ever sent.
+      //
+      // MEASURED across every log in the repository, with no exceptions:
+      // `b4==0x01` <=> `b5==0xFF`, and `b4==0x00` <=> b5 is a real reading.
+      // `playback.log` catches the transition -- 0x159 keeps transmitting
+      // straight through ignition-off and flips to `00 FF FF FF 01 FF`, and
+      // `radio-ignition-on` catches the reverse, three unavailable frames then
+      // `05 FF FF FF 00 4D` the moment the key reaches ON.
+      //
+      // B5 == 0xFF IS DELIBERATELY NOT ALSO REJECTED. Under the /2.55 scale
+      // 255 is exactly 100 %, so a brim-full tank is entitled to send it, and
+      // blanking the gauge at the one moment it reads full would be a worse lie
+      // than trusting b4. b4 is the flag the module actually sets.
+      if (f.data[4] != 0x00u) {
+        st.fuelMs = 0u;       // explicit unavailable -> dashes, never a hold
+        break;
+      }
+      st.fuelRaw = f.data[5];
+      st.fuelMs = nowMs;
+      break;
+
+    case 0x1B4u:              // compass: octant + magnetic heading, ~500 ms
+      if (f.len < 3u) return false;
+      // REFUSE AN OCTANT ABOVE 7, on ignitionFrom()'s rule rather than on a
+      // measurement: never invent a cardinal direction, because a confidently
+      // wrong "NE" on the glass is worse than nothing at all. No value above 7
+      // has ever been observed in either capture -- this guard is
+      // belt-and-braces, not a fix -- and it rejects the WHOLE frame, heading
+      // included, since the two share one stamp and a module talking nonsense
+      // in byte 0 has not earned belief in byte 1.
+      if (f.data[0] > 7u) return false;
+      // AND NO SENTINEL TEST, deliberately. 0xFF is absent from every byte of
+      // this frame across both sessions, so unlike 0x002, 0x014 and 0x1A7 there
+      // is no "no value" code here to reject. Adding one would blank a real
+      // heading; this omission is the measurement, not an oversight.
+      st.headingOctant = f.data[0];
+      st.headingRaw = f.data[1];
+      st.headingStatus = f.data[2];
+      st.headingMs = nowMs;
       break;
 
     default:

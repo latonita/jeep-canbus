@@ -7,9 +7,23 @@
 // starts 0, while the number that reaches a split in time is 0 either way. So
 // the gate costs no real figure and removes fourteen false stopwatches.
 //
-// The capture has no timestamps, so time is synthesised from the measured
-// 151 frames/s. Peak values below double as a check that it is faithful:
-// 82.9 km/h, 4163 rpm, pedal 0xEA, 8089 pedal frames.
+// TIME IS SYNTHESISED FROM THE MEASURED 151 frames/s, AND THAT IS WRONG. This
+// comment used to say "the capture has no timestamps, so ...", and the premise
+// was already false when it was written: scripts/playback.log is LAWICEL with
+// 4-digit rolling stamps on every line -- `millis() % 60000` off the gateway's
+// own clock -- so the loop below is inventing a uniform bus it could simply have
+// read. The honest thing is to unwrap those stamps instead, which is exactly what
+// core/StreamClock.h exists for; the firmware has done it since AT@SML2.
+//
+// NOT FIXED HERE, deliberately: this harness is what measured ACCEL_LAUNCH_MS and
+// the numbers above, and re-timing it changes what those numbers mean. It is a
+// follow-up, and the reason it matters is narrow but real -- accelUpdate()
+// INTERPOLATES the threshold crossing between two samples, so a split measured
+// off a metronome is measured off a metronome. The run/launch counts below are
+// insensitive to it at this resolution, which is why they are still quoted.
+//
+// Peak values double as a check that the replay is faithful: 82.9 km/h, 4163 rpm,
+// pedal 0xEA, 8089 pedal frames.
 //
 //   clang++ -std=c++17 -O1 -I core scripts/replay-accel.cpp core/Broadcast.cpp //       core/Accel.cpp -o replay-accel && ./replay-accel scripts/playback.log
 #include <stdio.h>

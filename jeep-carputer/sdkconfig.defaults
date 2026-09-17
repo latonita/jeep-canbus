@@ -77,4 +77,10 @@ CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
 # .bss, and taking it starves the internal DMA heap the two 38 KB draw buffers
 # come from -- esp_lvgl_port then fails buf2 and there is no display at all.
 # See CLAUDE.md.
-CONFIG_LV_MEM_SIZE_KILOBYTES=96
+CONFIG_LV_MEM_SIZE_KILOBYTES=112
+
+# The task watchdog must RESET, not just log. It fired every five seconds
+# through an LV_ASSERT_MALLOC while(1) and printed a backtrace for ever while
+# the panel stayed frozen -- a watchdog that only complains is a log line.
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=2

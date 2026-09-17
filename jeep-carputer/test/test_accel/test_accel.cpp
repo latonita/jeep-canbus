@@ -428,4 +428,128 @@ TEST_MAIN_BEGIN()
     CHECK(accelLast(a) == nullptr);
   }
 
+  // -------------------------------------------------------------------------
+  // A run that FINISHES inside the launch window is still thrown away
+  //
+  // This was a live bug, and the gate it needed is in finish() rather than in
+  // dropUnlaunched(). dropUnlaunched() is purely TEMPORAL -- it fires only
+  // once ACCEL_LAUNCH_MS has passed -- so a run that reaches every split
+  // before that never met it, went straight through the "all splits in the
+  // bag" branch and was published without a launch.
+  //
+  // Two samples 100 ms apart do it, which is not a contrived input: the 0x002
+  // speed word is rejected by core/Broadcast.cpp only at EXACTLY 0xFFFF, so
+  // 0xFFFE decodes as a real 511.98 km/h, and playback.log carries four
+  // near-sentinel speed frames in one 841 s drive. The published figure was
+  // 0-60 in 55 ms and 0-100 in 91 ms.
+  // -------------------------------------------------------------------------
+  {
+    AccelSet a;
+    accelInit(a);
+    accelUpdate(a, 0.0f, 600u, 1000u);        // at rest, idling: ARMED
+    accelUpdate(a, 110.0f, 600u, 1100u);      // ONE sample, 100 ms later
+    CHECK(accelLast(a) == nullptr);           // was: 55 ms / 91 ms, floored=0
+    CHECK(a.histCount == 0u);
+    CHECK(a.best.ms[ACCEL_SPLIT_60] == 0u);
+    CHECK(a.best.ms[ACCEL_SPLIT_100] == 0u);
+    CHECK(!a.best.floored);
+    CHECK(a.live.ms[ACCEL_SPLIT_60] == 0u);   // and nothing left in `live` for
+    CHECK(a.live.ms[ACCEL_SPLIT_100] == 0u);  // the next arming to inherit
+  }
+
+  // -------------------------------------------------------------------------
+  // ... and BEST is what makes that permanent, so it is asserted separately
+  //
+  // `best` only ever moves FASTER and accelInit() runs once per boot, so a
+  // bogus 55 ms 0-60 could never be displaced by a genuine 3 s launch: it
+  // would sit on the page beside every real run for the rest of the key
+  // cycle. The second half of this case is the one that used to fail.
+  // -------------------------------------------------------------------------
+  {
+    AccelSet a;
+    accelInit(a);
+    accelUpdate(a, 0.0f, 600u, 1000u);
+    accelUpdate(a, 110.0f, 600u, 1100u);      // the corrupt sample
+    CHECK(a.best.ms[ACCEL_SPLIT_60] == 0u);
+
+    // A genuine floored launch, 20 s later: 60 at ~3 s, 100 at ~5 s. It must
+    // publish, and it must OWN `best` -- there is nothing quicker to beat.
+    accelUpdate(a, 0.0f, IDLE_RPM, 20000u);
+    CHECK(a.state == ACCEL_ARMED);
+    ramp(a, 20050u, 50u, 1.0f, 20.0f, 6000u, true);
+    const AccelRun* r = accelLast(a);
+    CHECK(r != nullptr);
+    CHECK(r->floored);
+    CHECK(r->ms[ACCEL_SPLIT_60] > 2900u);
+    CHECK(r->ms[ACCEL_SPLIT_60] < 3200u);
+    CHECK(a.histCount == 1u);                 // the bogus run is not in there
+    CHECK(a.best.ms[ACCEL_SPLIT_60] == r->ms[ACCEL_SPLIT_60]);
+    CHECK(a.best.ms[ACCEL_SPLIT_100] == r->ms[ACCEL_SPLIT_100]);
+    CHECK(a.best.floored);
+  }
+
+  // -------------------------------------------------------------------------
+  // The CAME-TO-REST path reaches the gate too
+  //
+  // finish() has four callers and the two that can be hit inside the launch
+  // window are "all splits in the bag" and this one. Coasting back to a
+  // standstill publishes whatever the run reached -- correctly, for a launched
+  // run -- so an unlaunched one must be refused here as well, or a corrupt
+  // sample followed by a stop would publish a single split instead of two.
+  // -------------------------------------------------------------------------
+  {
+    AccelSet a;
+    accelInit(a);
+    accelUpdate(a, 0.0f, IDLE_RPM, 1000u);
+    accelUpdate(a, 70.0f, DRIVE_RPM, 1100u);  // one sample past 60, no pedal
+    CHECK(a.live.ms[ACCEL_SPLIT_60] != 0u);   // the split IS recorded...
+    CHECK(accelRunning(a));                   // ...and the run is still in
+                                              // flight: 100 ms < 1500 ms
+    accelUpdate(a, 0.0f, IDLE_RPM, 1400u);    // back to rest, still inside the
+                                              // window
+    CHECK(accelLast(a) == nullptr);           // nothing published
+    CHECK(a.best.ms[ACCEL_SPLIT_60] == 0u);
+    CHECK(a.state == ACCEL_ARMED);            // and it re-arms as before
+  }
+
+  // -------------------------------------------------------------------------
+  // The same three paths for a LAUNCHED run all still publish
+  //
+  // The gate must not have cost anything. One run per finish() caller that can
+  // carry a launch: every split in the bag, the car coming to rest, and the
+  // 12 s cut-off expiring a run that is still moving.
+  // -------------------------------------------------------------------------
+  {
+    AccelSet a;                                // all splits in the bag
+    accelInit(a);
+    accelUpdate(a, 0.0f, IDLE_RPM, 1000u);
+    ramp(a, 1050u, 50u, 1.0f, 20.0f, 6000u, true);
+    CHECK(accelLast(a) != nullptr);
+    CHECK(a.best.ms[ACCEL_SPLIT_100] != 0u);
+  }
+  {
+    AccelSet a;                                // came to rest with one split
+    accelInit(a);
+    accelUpdate(a, 0.0f, IDLE_RPM, 1000u);
+    ramp(a, 1050u, 50u, 1.0f, 20.0f, 3200u, true);
+    accelUpdate(a, 0.0f, IDLE_RPM, 6000u);
+    CHECK(accelLast(a) != nullptr);
+    CHECK(accelLast(a)->ms[ACCEL_SPLIT_60] != 0u);
+    CHECK(accelLast(a)->ms[ACCEL_SPLIT_100] == 0u);
+    CHECK(a.best.ms[ACCEL_SPLIT_60] != 0u);
+  }
+  {
+    AccelSet a;                                // the cut-off, off the bus
+    accelInit(a);
+    accelUpdate(a, 0.0f, IDLE_RPM, 1000u);
+    accelUpdate(a, 70.0f, DRIVE_RPM, 1050u);
+    accelPedal(a, true);                       // launched, then silence
+    CHECK(accelLaunched(a));
+    accelTick(a, 1000u + kAccelLimitMs[ACCEL_SPLIT_100] + 500u);
+    CHECK(!accelRunning(a));
+    CHECK(accelLast(a) != nullptr);            // the 60 it reached still counts
+    CHECK(accelLast(a)->ms[ACCEL_SPLIT_60] != 0u);
+    CHECK(a.best.ms[ACCEL_SPLIT_60] != 0u);
+  }
+
 TEST_MAIN_END()

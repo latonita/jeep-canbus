@@ -2,11 +2,13 @@
 
 #include "Settings.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "Board.h"
 #include "Display.h"
+#include "Touch.h"
 #include "UiTheme.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
@@ -16,11 +18,11 @@
 #include "lvgl.h"
 
 #include "Accel.h"
+#include "Compass.h"
 #include "Faults.h"
 #include "SignalDb.h"
 #include "Broadcast.h"
 #include "Trip.h"
-#include "VehicleState.h"
 
 static const char* TAG = "ui";
 
@@ -38,14 +40,6 @@ static const char* TAG = "ui";
 // no Kconfig for it; the duration is written directly onto the animation in
 // onScrollBegin(), which LVGL resolves after that callback returns.
 #define UI_PAGE_ANIM_MS 180
-
-// WCM 21 3B reports one psi per bit, with no offset and no scaling. The cabin
-// reads in bar, so the conversion lives here rather than in the decoder: the
-// wire value stays the wire value, and only the presentation changes.
-//
-// For scale: the owner's stated target band of 2.1-2.3 bar is 30.5-33.4 psi,
-// and the recorded corners (30-34 psi) are 2.07-2.34 bar.
-#define UI_PSI_TO_BAR 0.0689476f
 
 // Tank capacity. The WH 3.0 CRD carries 78.0 L, and CCN reports fuel level as a
 // percentage, so litres is the percentage scaled -- the only number on DRIVE
@@ -71,70 +65,13 @@ static const char* TAG = "ui";
 #define UI_PRICE_STEP       1u   // one tap: a cent
 #define UI_PRICE_STEP_FAST  5u   // one tick of a held press
 
-// Bottom of the owner's stated cold band. Below this a road wheel is called
-// low; the spare is excluded, since it reads about 0.5 bar and would otherwise
-// hold the warning on permanently.
-#define UI_TYRE_LOW_BAR 2.1f
-
-// How long a tyre reading counts as fresh. TWICE the poll interval in kPlan,
-// which is a minute for the corners and for the spare, so both tolerate one
-// missed request and no more.
-//
-// These are a property of the POLL RATE, not of the signal: judged against the
-// default 5 s TTL a value asked for once a minute is stale fifty-five seconds
-// out of every sixty, and a reading as fresh as its poll rate allows is not a
-// stale reading. It just makes the dimming mean nothing, on the page where the
-// dimming is the guard against believing a frozen number.
-#define UI_TYRE_TTL_MS  120000u
-#define UI_SPARE_TTL_MS 120000u
-
 // ---- The flow readout ----------------------------------------------------
 //
-// 0x1A7 is a rate in known units -- L/h = Q/160 -- so unlike the first version
-// of this screen the bar CAN be scaled to something real and CAN carry a number
-// beside it.
-//
-// Full scale is 50 L/h. An OM642 peaks higher than that, but almost no driving
-// happens up there: idle is under 1 L/h and a cruise is around 10, so a bar
-// scaled to the engine's true peak would spend its life in the bottom sixth and
-// show nothing useful. 50 puts a cruise at a fifth lit, leaves room for a hard
-// overtake, and pegs on full throttle -- which is information in itself.
-//
-// It was 40 until the bar gained a critical state. The colour now carries the
-// alarm, so the LENGTH is free to describe a wider range without the top of it
-// being somewhere the driver never sees.
-// It CLAMPS rather than auto-ranging: a bar whose full scale moves means
-// something different every time the driver looks at it.
-#define UI_FLOW_SEGS 16
-#define UI_FLOW_FULL_LPH 50.0f
-
-// Above this the bar goes critical.
-//
-// The threshold is on the PER-DISTANCE figure, not on L/h, and it only applies
-// while the readout is actually in L/100 -- stopped or crawling there is no
-// distance to divide by, and an idling engine would otherwise sit permanently
-// in alarm for burning under a litre an hour. See s_flowPerDistance.
-//
-// It is a rate of SPENDING, not a fault. Nothing is wrong with the car at
-// 40 L/100km; you are just paying for it, which is exactly the thing a fuel
-// card exists to say out loud.
-#define UI_FLOW_CRIT_L100 35.0f
-
-// Where the instantaneous readout changes unit.
-//
-// Stopped, or crawling below the speed this firmware already calls stopped,
-// litres-per-100-km is arithmetic on a number approaching zero: an idling
-// engine at 1 km/h reads 80 L/100km, which is arithmetically true and useless.
-// Sitting in a jam or parked and running, litres per HOUR is the figure that
-// means something -- it is what tells you what an hour of waiting costs.
-//
-// Two thresholds, not one, and the gap between them is deliberate. A crawling
-// car crosses a single threshold over and over, and a readout that flips
-// between "0.9 L/h" and "62.0 L/100" every few seconds cannot be read -- which
-// is precisely the traffic-jam case this exists for. Below 2 km/h it is always
-// L/h; above 3 km/h always L/100; in between it keeps whatever it was showing.
-#define UI_FLOW_TO_LPH_KPH TRIP_MOVING_KPH
-#define UI_FLOW_TO_L100_KPH 3.0f
+// The thresholds, the full scale and the critical rule all live in
+// core/Snapshot.h now, with the rest of the decisions about what the numbers
+// MEAN. UI_FLOW_SEGS is still used here, for the widget array and the bar
+// geometry -- how many segments there are is a layout fact as much as a
+// scaling one, which is why it reads naturally in both places.
 
 // ---- Orientation ---------------------------------------------------------
 //
@@ -185,6 +122,37 @@ static const char* TAG = "ui";
 // Two columns replace the vertical stack: hero on the left, the same values in
 // a narrow stack on the right. Nothing is dropped, added or reordered, which is
 // what makes a runtime toggle safe rather than a second design to keep in sync.
+// THE LANDSCAPE HERO BLOCK -- one set of numbers for DRIVE, TRIP and HEALTH.
+//
+// These three pages each grew their own hero geometry and ended up at three
+// different heights: the header at y=8 / 5 / 4, the numeral at 24 / 52 / 76,
+// the sub-line at 103 / -- / 155. Flicking between them the whole card jumped,
+// which reads as three designs rather than one instrument with three cards.
+//
+// Every number here is DERIVED from the font metrics rather than chosen, which
+// is what stops it drifting again:
+//
+//   font_digits_64  line_height 73, base_line 1  -> baseline at y+72,
+//                                                   glyphs span y+9 .. y+73
+//   font_label_14   line_height 16, base_line 3  -> baseline at y+13
+//
+// UNIT_Y puts a label-face unit's baseline ON the numeral's baseline
+// (+72-13), which is what TRIP's "KM" already did and what the other two now
+// do instead of parking a key up in the header.
+//
+// SUB_Y clears the numeral's line box (73) by 11. It was 6 -- portrait's gap
+// -- and 6 is too tight here: the digits reach y+73, the very bottom of that
+// box, so the measured gap and the SEEN gap are the same number, where a face
+// with descender space would have looked airier at the same figure. Changed on
+// the owner's eye against the panel, which is the only instrument that counts
+// for this one.
+// The header sits at 5 in every band (see buildHeader), so the glyph tops at
+// y+33 leave 12 px under a 16 px header line -- and on TRIP, 7 px under the
+// selector's 2 px underline at 24.
+#define UI_LS_HERO_Y      24
+#define UI_LS_HERO_UNIT_Y (UI_LS_HERO_Y + 72 - 13)
+#define UI_LS_HERO_SUB_Y  (UI_LS_HERO_Y + 73 + 11)
+
 #define UI_LS_DIV_X (UI_W - 1 - UI_LS_RIGHT_W)          // the 1 px column rule
 #define UI_LS_L_R   (UI_LS_DIV_X - UI_LS_PAD)           // left column, content right edge
 #define UI_LS_R_L   (UI_LS_DIV_X + 1 + UI_LS_PAD)       // right column, content left edge
@@ -194,6 +162,28 @@ static const char* TAG = "ui";
 #define UI_STATUS_H (s_landscape ? UI_LS_STATUSBAR_H : UI_STATUSBAR_H)
 #define UI_PAGE_Y   (UI_STATUS_H)
 #define UI_PAGE_H   (UI_H - UI_STATUS_H)
+
+// PORTRAIT HERO GEOMETRY -- the same derivation landscape uses, and for the
+// same reason. DRIVE, HEALTH and TRIP each own one 64 px numeral with a unit
+// beside it, and a literal typed per page is exactly how the three drifted
+// apart in the first place.
+//
+//   font_digits_64  line_height 73, base_line 1  -> baseline at y+72
+//   font_label_14   line_height 16, base_line 3  -> baseline at y+13
+//
+// So a label-face unit sits ON the numeral's baseline at hero_y + 72 - 13.
+// TRIP always did that (30 -> 89, spelled out in a comment); DRIVE and HEALTH
+// parked a font_label_20 KEY in the header instead, because at 20 px "L/100"
+// is 44.1 px and starts where the hero ends. In the label face it is 35.3,
+// which is what let them come down -- MEASURED, not hoped: right-aligned to
+// UI_W - (UI_PAD - 2) = 230 its left edge is 194.7, DRIVE's hero starts at
+// x=8, and the widest string refreshDrive() can emit is "99.9" at 127.1 px,
+// so 59.6 px of clearance (27.6 even if an un-truncated "100.0" ever reached
+// the panel). HEALTH's "V" is 8.4 px, left edge 221.6, which clears an absurd
+// "888.8" (168.8 px from x=8) by 44.8.
+#define UI_HERO_Y             20   // DRIVE and HEALTH
+#define UI_TRIP_HERO_Y        30   // TRIP, which starts under its selector
+#define UI_HERO_UNIT_Y(heroY) ((heroY) + 72 - 13)
 
 // Portrait info-block geometry.
 //
@@ -205,14 +195,220 @@ static const char* TAG = "ui";
 #define UI_SET_INFO_ROW0  216
 #define UI_SET_INFO_STEP  21
 
-// Where the three info VALUES are right-aligned to, and at what y. Filled by
-// whichever SETTINGS builder ran -- portrait stacks them down the page,
-// landscape lays them across a bottom strip -- because the refresh has to
-// re-align on every change: a right-aligned label's x depends on its width, so
-// lv_obj_align() is a one-shot position and the numbers have to survive until
-// the next one. Two copies of them would drift.
-static lv_coord_t s_infoX[3];
-static lv_coord_t s_infoY[3];
+// ---- the compass tape ------------------------------------------------------
+//
+// 0x1B4 carries a magnetic heading twice a second, and the right home for it is
+// the STATUS BAR rather than a page. It is not something a driver goes looking
+// for; it is a fact wanted in peripheral vision on whatever page they are
+// already on -- which is the same argument that put the clock there.
+//
+// The bar had room for it only once the "LINK" legend came out. That legend was
+// a word printed beside a dot whose COLOUR is the entire message, green for up
+// and red for down, so it spent 35 px restating what the dot already said.
+//
+// ONE GEOMETRY FOR BOTH BANDS. Portrait's bar is 240 px and landscape's is 320,
+// but the tape is 156 px at x=58 in each: in portrait that stops 8 px short of
+// the link dot, and in landscape the page dots take up the slack. A tape that
+// changed width with the orientation would change how much horizon a glance
+// buys, and that is the one thing about it that must not move.
+//
+// 152 and not 156: the link readout became an 11px ring icon rather than a 6px
+// dot, and the 4px it grew came off the tape rather than off the margin. The
+// tape is the element with slack in it -- a degree is still 1.69px, an octant
+// name still 76px from its neighbour -- and the margin is what stops the bar
+// looking crowded against the panel edge.
+#define UI_COMPASS_X    58
+#define UI_COMPASS_W    152
+
+// The window, in degrees. 90 puts 1.73 px on a degree, which spaces the octant
+// names 78 px apart and the 15-degree ticks 26 px -- wide enough that "NW"
+// never crowds the tick beside it, tight enough that the 18-26 deg/s of an
+// ordinary junction turn visibly moves the tape.
+#define UI_COMPASS_SPAN 90u
+
+// Widget pools. A 90-degree window holds at most seven 15-degree marks, of
+// which at most three are octants; these are that worst case plus slack, and
+// compassMarks() is handed the pool size rather than being trusted to agree
+// with the arithmetic.
+#define UI_COMPASS_TICKS 8
+#define UI_COMPASS_NAMES 4
+
+// How much of the remaining arc the tape closes per 100 ms refresh.
+//
+// The frame lands every 500 ms and the panel redraws at 10 Hz, so without this
+// the tape would step five times a second through a turn. 0.45 closes ~90 % of
+// the arc in 400 ms: quick enough not to lag a real junction, slow enough to
+// read as a slide rather than a jump.
+//
+// Interpolating a vehicle signal at all is only defensible because this one is
+// provably free of jitter -- across all 196 consecutive stationary sample pairs
+// in the drive capture the heading delta was exactly zero -- so this can only
+// smooth real motion. It is not a filter hiding a noisy signal, and
+// compassGlide() snaps rather than eases past COMPASS_SNAP_DEG, so the 96
+// degrees a hairpin apex really does turn in one sample is not smeared.
+#define UI_COMPASS_GLIDE 0.45f
+
+// The row, and the pip above it. The row shares the CLOCK's y so the two things
+// in the status bar sit on one baseline; the tick is centred in the row's 16 px
+// and the pip goes in the margin above, which is all the room a one-line tape
+// leaves for a marker.
+#define UI_COMPASS_Y      (s_landscape ? 3 : 5)
+#define UI_COMPASS_TICK_Y (UI_COMPASS_Y + 6)
+#define UI_COMPASS_TICK_H 5
+//
+// THE MARKER IS A TRIANGLE POINTING DOWN, at the tape. It was a 5x3 block,
+// which said "here" without saying WHICH WAY -- and on a tape the marker's
+// whole job is to name one COLUMN of pixels as the heading you are on. An apex
+// does that; a block only brackets it. Same idiom as both compasses the owner
+// picked out, which point AT the scale rather than sitting above it.
+//
+// Three rows of 5, 3 and 1 px, each inset one from the last -- the only
+// triangle available at this size, since nothing in this file draws a line and
+// a 3px apex is already at the limit of what reads as a point rather than a
+// notch. The rows are DERIVED from the width, so it stays a triangle if either
+// dimension moves.
+#define UI_COMPASS_MARK_Y (s_landscape ? 0 : 1)
+#define UI_COMPASS_MARK_W 5
+#define UI_COMPASS_MARK_H 3
+
+// A name is centred on its mark in a box wide enough for the two-letter
+// ordinals. Fixed width so a scrolling label never has to be re-measured.
+#define UI_COMPASS_NAME_W 24
+
+// ---- the COMPASS page's perspective dial -----------------------------------
+//
+// The ring lies flat like a disc on the ground, seen from behind and above, and
+// turns under a fixed marker so the driver's heading is always at the TOP -- and
+// therefore FARTHEST. The projection is core/Compass.h's; only the sizes are
+// here, because they are the one part that is about this panel.
+//
+// DOTS, not ticks. A tick on a rotating dial ought to point at the centre, and
+// nothing in this file can rotate a rectangle -- but a dot looks identical at
+// every angle, so the whole problem disappears. It is the same reason the tape
+// above uses 1px bars: there, every tick is vertical.
+//
+// Rx/Ry are the ORTHOGRAPHIC radii; the perspective divide then pushes the near
+// edge out to Ry/0.7 and pulls the far edge in to Ry/1.3, so the ring really
+// occupies RY_P px above the centre and RY_N below it. Those two are what the
+// layout below is spaced against, and they are derived rather than measured off
+// a picture.
+#define UI_DIAL_RX      (s_landscape ? 88 : 100)
+#define UI_DIAL_RY      (s_landscape ? 46 : 50)
+#define UI_DIAL_CX      (s_landscape ? (UI_LS_PAD + 90) : (UI_W / 2))
+#define UI_DIAL_CY      (s_landscape ? 107 : 72)
+#define UI_DIAL_DOT_MIN 2     // farthest
+#define UI_DIAL_DOT_MAX 5     // nearest
+#define UI_DIAL_NAMES   8
+
+// THE VEHICLE, at the centre, pointing UP -- a solid triangle whose base sits on
+// the dial's centre and whose apex reaches toward the far edge of the ring.
+//
+// It REPLACED a small marker that sat above the ring pointing down at it. Both
+// say the same thing, so having both was one idea drawn twice; and the arrow is
+// the better half. The marker named a point on the scale, which is what a LINEAR
+// tape needs because its scale is the whole widget. Here the scale is a ring
+// around you, so what the picture wants is YOU -- at the centre, pointing the
+// way the truck is pointing, with the world turning around it.
+//
+// Thirteen 2px rows widening from a 1px apex to UI_DIAL_ARROW_W, because there
+// is no line or polygon drawing in this file. Built ONCE and never moved: the
+// arrow is the one part of this page that is fixed by definition, since "we
+// always go up" is exactly the statement that it never turns.
+#define UI_DIAL_ARROW_H    26
+#define UI_DIAL_ARROW_W    18
+#define UI_DIAL_ARROW_ROWS (UI_DIAL_ARROW_H / 2)
+// A name box wide enough for the two-letter ordinals at the near scale.
+#define UI_DIAL_NAME_W  26
+
+// ---- the link icon ---------------------------------------------------------
+//
+// ONE RING WITH A DASH THROUGH IT, crossed out in the critical colour when the
+// link is down. It replaced a 6px dot that carried the same one bit in colour
+// alone, which was legible only to somebody who already knew what the dot
+// meant -- and the "LINK" legend that used to explain it had just been removed.
+//
+// IT WAS TWO INTERLOCKING RINGS FIRST, and that was the wrong call: at 9px a
+// chain of two reads as a blurred figure-8, because the interlock is the one
+// feature carrying the metaphor and it is the first thing to disappear at this
+// size. One ring with a bar through it survives the shrink -- the ring is the
+// whole shape and the dash is the only interior detail, so nothing has to be
+// resolved to know what it is.
+//
+// DRAWN FROM PRIMITIVES, because there is no glyph for it. `lv_font_montserrat_14`
+// is compiled in and carries LVGL's FontAwesome subset, but that subset has no
+// link icon -- the nearest metaphors are a WiFi fan and a USB trident, and
+// neither says "the cable to the gateway". So the icon is what every other
+// decoration here is: styled rectangles. `mkOutline` with LV_RADIUS_CIRCLE
+// already draws exactly the ring.
+//
+// THE SLASH IS A STAIRCASE, not a rotated bar. Nothing in this file draws a
+// line -- there is no canvas, no `lv_line`, no custom draw event anywhere --
+// and `transform_rotation` would push the object through a layer render for a
+// static decoration.
+//
+// AND IT IS DRAWN TWICE: a 4px HALO pass in UI_BG, then a 2px LINE pass in
+// UI_CRIT on top. A bare red diagonal laid across a red ring melts into it --
+// the two shapes share a colour and touch at four points, so the eye reads one
+// blob rather than a thing and a cancellation. The 1px of background either
+// side is what separates them.
+//
+// The halo has to be a SEPARATE PASS rather than a border on each block. The
+// blocks overlap (that is what makes the diagonal solid rather than dotted), so
+// per-block borders would paint each block's halo over its neighbour's core and
+// chop the line into dashes. All halos first, all cores second, z-order does
+// the rest.
+#define UI_LINK_D 11           // the ring, and the icon's box
+#define UI_LINK_W UI_LINK_D
+#define UI_LINK_DASH_W 5
+#define UI_LINK_DASH_H 2
+// TEN blocks, not eight, and the number is derived rather than chosen: the core
+// travels UI_LINK_D - UI_LINK_CORE = 9px, so ten positions step exactly 1px and
+// consecutive 2x2 cores OVERLAP by one. At eight the step was 9/7, which left
+// two pairs meeting only at a corner -- a diagonal with two visible nicks in it.
+#define UI_LINK_SLASH_N 10
+#define UI_LINK_CORE 2         // the visible diagonal
+#define UI_LINK_HALO 4         // the background gap around it, 1px a side
+// Right-aligned to the same margin every page uses, and vertically centred on
+// the CLOCK'S text row rather than on the bar, so the icon and the time read as
+// sitting on one line.
+#define UI_LINK_X (UI_W - (UI_PAD - 2) - UI_LINK_W)
+#define UI_LINK_Y (s_landscape ? 6 : 8)
+
+// NOTHING CACHES A RIGHT-ALIGNED LABEL'S ANCHOR, and nothing needs to.
+//
+// There were two arrays here -- s_infoX[3] / s_infoY[3] -- plus a `slot`
+// parameter threaded through mkInfoRow and setInfoText to index them, all of it
+// to re-issue lv_obj_align() after every text change. The belief was that
+// lv_obj_align() is a ONE-SHOT position: it resolves the alignment against the
+// label's width once, so a value that got wider would keep its old x and drift
+// off its right edge unless the builder's anchor survived to be re-applied.
+//
+// That is the wrong function. lv_obj_align() sets a PERSISTENT STYLE:
+// lv_obj_pos.c:410 is `lv_obj_set_style_align()` + `lv_obj_set_pos()`, and
+// LV_STYLE_ALIGN stays on the object. lv_obj_refr_pos() (lv_obj_pos.c:777)
+// re-reads it at :815 and recomputes x from the CURRENT width -- :806 takes
+// `w = lv_obj_get_width(obj)` and :854 resolves TOP_RIGHT as `pw - w + x`. So
+// the alignment is re-solved from scratch every time the width changes, which
+// is exactly the case the arrays existed to cover.
+//
+// And a label's text change is precisely what triggers that: lv_label_set_text
+// -> set_text_internal -> lv_label_mark_need_refr_text (lv_label.c:1019) calls
+// lv_obj_refresh_self_size (lv_label.c:1066), which for a LV_SIZE_CONTENT
+// widget -- lv_label_class.width_def, lv_label.c:103 -- marks the layout dirty
+// (lv_obj_pos.c:773), and layout_update_core then runs `lv_obj_refr_size();
+// lv_obj_refr_pos();` on it (lv_obj_pos.c:1542-1543) before the frame is drawn.
+//
+// lv_obj_align_to() is the genuinely one-shot variant, and says so in its own
+// body: it resolves against the base object and then writes the align back to
+// LV_ALIGN_TOP_LEFT (lv_obj_pos.c:561), discarding it. Confusing the two is
+// what built this.
+//
+// The rest of this file had already been relying on the truth for months --
+// W.flowNow is a mkRightLabel written only through setTextIfChanged, and it
+// swings between "--" and "12.3 L/100" without ever being re-aligned. The INFO
+// strip was the one place that paid for a belief the panel had already
+// disproved; the re-align it was funding passed back the identical arguments
+// mkRightLabel had used, so it was a no-op besides.
 
 // Which way round the instrument is drawn.
 //
@@ -266,13 +462,32 @@ static lv_display_rotation_t orientRotation(uint8_t orient) {
   }
 }
 
-static VehicleState* s_state = nullptr;
-static const BroadcastState* s_bcast = nullptr;
-static const TripSet* s_trips = nullptr;
-static const AccelSet* s_accel = nullptr;
-static const FaultSet* s_faults = nullptr;
+// THE RENDERER'S PRIVATE COPY of the vehicle, and the only thing it reads.
+//
+// Refilled once per refresh from whoever publishes (see uiSetSnapshotReader in
+// Ui.h for why that is one call and not five). Being a copy is the point: a
+// frame cannot change under the brush, so every number on the glass belongs to
+// the same instant and the drill-down cannot walk a fault list that
+// end-of-scan is re-sorting underneath it.
+//
+// Zero-initialised, which reads as "nothing known" all the way down -- dashes
+// everywhere, which is honest and is exactly what a board with no link should
+// show before the first publish lands.
+static Snapshot s_snap;
+static void (*s_readSnap)(Snapshot& out) = nullptr;
+
+// Aliases INTO the private copy, not separate sources.
+//
+// These three structures are carried in the snapshot whole rather than picked
+// apart field by field, so the pages that walk them need no conversion and
+// still get the consistency guarantee. They are const because the renderer has
+// never been allowed to write vehicle state and still is not: every change
+// travels out as a request (s_tripReset, s_faultMute, s_faultClear).
+static const TripSet* const s_trips = &s_snap.trips;
+static const AccelSet* const s_accel = &s_snap.accel;
+static const FaultSet* const s_faults = &s_snap.faults;
 static void (*s_faultRescan)(void) = nullptr;
-static void (*s_faultMute)(uint8_t) = nullptr;
+static void (*s_faultMute)(uint8_t, uint16_t) = nullptr;
 static void (*s_faultClear)(uint8_t, uint16_t) = nullptr;
 static void (*s_tripReset)(uint8_t) = nullptr;
 
@@ -321,12 +536,69 @@ static bool s_splashDone = false;
 // into the newly built dot, not forgotten.
 static bool s_linkOk = false;
 
-static lv_color_t linkDotColour(void) {
+static lv_color_t linkIconColour(void) {
   return s_linkOk ? UI_PRIMARY : UI_CRIT;
 }
 
+// Defined down with the status bar; uiLinkReady() up here needs the name.
+static void setLinkIcon(void);
+
 // Defined down with buildRoot(), because they need it; used up in uiTask.
 static void uiApplyTheme(uint8_t theme);
+
+// Defined down with the splash screen; uiTask drives all of this from up here.
+static void refreshSplash(uint32_t now);
+static void buildSplash(void);
+static uint32_t s_splashT0 = 0u;
+static bool s_bulbOn = false;
+
+// ---- the hidden splash replay ----------------------------------------------
+//
+// FOUR TAPS ON DRIVE'S HERO replays the welcome animation, then comes back.
+// It is an easter egg and it is meant to be undiscoverable: nothing on the
+// glass hints at it, which is exactly why the gesture is right here and wrong
+// anywhere a driver has to FIND something. The TRIP selector exists because a
+// double tap that hid two meters was modal and invisible; this hides nothing.
+//
+// LVGL COUNTS TO FOUR BUT CANNOT EVENT ON IT. `indev_proc_short_click()` does
+// `switch((streak - 1) % 3)`, so SINGLE/DOUBLE/TRIPLE wrap and a fourth tap
+// re-fires LV_EVENT_SINGLE_CLICKED. The raw counter does NOT wrap and is public
+// (`lv_indev_get_short_click_streak`), so the streak is read directly instead.
+//
+// Both of LVGL's thresholds are its defaults and neither is ours: a tap joins
+// the streak only within `scroll_limit` (10 px) of the last one, and within
+// `long_press_time` of it. That second one is LITERALLY THE SAME FIELD as the
+// long-press timer TRIP's reset uses -- 400 ms today. Change one and this
+// gesture's window moves with it.
+#define UI_EGG_TAPS 4u
+// Two flash pairs, matching what the boot splash shows, plus the two fades.
+#define UI_EGG_MS   2600u
+
+static volatile bool s_eggReq = false;
+static uint32_t s_eggUntil = 0u;
+
+// ---- external page control --------------------------------------------------
+//
+// A step request from OUTSIDE the touchscreen -- today the head unit's
+// fast-forward / rewind buttons off 0x394, tomorrow two physical buttons.
+//
+// It is a SIGNED ACCUMULATOR, not a flag and not a target page. An accumulator
+// is what makes the producer and the consumer independent: whoever is pressing
+// buttons runs on the link task at its own rate, the scroller runs at 10 Hz,
+// and two presses arriving inside one UI tick must still move two pages rather
+// than one. A bare flag silently drops the second; a target page would mean the
+// producer has to know where the scroller currently is, which it cannot.
+//
+// `volatile int8_t` and not a lock, for the same reason s_themeReq is: one
+// writer, one reader, a single naturally-aligned byte on Xtensa. The consumer
+// takes the whole pending value and zeroes it in one statement.
+static volatile int8_t s_pageStep = 0;
+
+// Proof of life for the renderer. See where it is incremented in uiTask().
+static volatile uint32_t s_uiBeat = 0u;
+
+// Defined down with the splash screen; uiTask drives it from up here.
+static void refreshSplash(uint32_t now);
 static void uiApplyOrientation(uint8_t orient);
 
 // Defined with the other value-setters, far below; declared here because the
@@ -347,17 +619,16 @@ static volatile uint8_t s_themeReq = 0xFFu;
 // and the row that asked for it is inside s_root. 0xFF is "no request".
 static volatile uint8_t s_orientReq = 0xFFu;
 
-// Cached VehicleState slot indices, resolved once at init. -1 means the signal
-// is not in the poll plan, which is a normal condition, not an error.
-static struct {
-  int8_t coolant, volts, speed, rpm, fuel, ambient;
-  int8_t tyre[4], spare;
-} s_slot;
-
 // Live widgets.
 static struct {
-  lv_obj_t* linkDot;
+  lv_obj_t* linkRing;                    // the O
+  lv_obj_t* linkDash;                    // the bar through it
+  lv_obj_t* linkHalo[UI_LINK_SLASH_N];   // background gap under the diagonal
+  lv_obj_t* linkSlash[UI_LINK_SLASH_N];  // the diagonal, shown only when down
   lv_obj_t* clockLbl;
+  lv_obj_t* compTick[UI_COMPASS_TICKS];
+  lv_obj_t* compName[UI_COMPASS_NAMES];
+  lv_obj_t* compMark[UI_COMPASS_MARK_H];  // the fixed centre triangle
   lv_obj_t* l100;
   lv_obj_t* driveDist;   // hero sub-line, left
   lv_obj_t* driveCost;   // hero sub-line, right
@@ -371,6 +642,7 @@ static struct {
   lv_obj_t* speed;
   lv_obj_t* rpm;
   lv_obj_t* healthVolts;
+  lv_obj_t* healthFuel;   // hero sub-line: tank %
   lv_obj_t* healthCoolant;
   lv_obj_t* healthAmbient;
   lv_obj_t* faults;
@@ -402,6 +674,17 @@ static struct {
   lv_obj_t* tripAvgKph;
   lv_obj_t* tripElapsed;  // hero sub-line, left  -- IN, the whole window
   lv_obj_t* tripMoving;   // hero sub-line, right -- RIDE, the moving part
+  lv_obj_t* tripRange;    // second sub-line -- km to empty, at this meter's rate
+  // COMPASS page
+  lv_obj_t* dialDot[COMPASS_DIAL_MARKS];
+  lv_obj_t* dialName[UI_DIAL_NAMES];
+  lv_obj_t* dialArrow[UI_DIAL_ARROW_ROWS];
+  lv_obj_t* dialOctant;   // the 8-way letters, inside the ring
+  lv_obj_t* dialHeading;  // the hero
+  lv_obj_t* dialSpeed;
+  lv_obj_t* dialTrip;
+  lv_obj_t* dialTripCap;  // landscape only -- names which meter
+  lv_obj_t* dialTemp;
   lv_obj_t* tripSeg[TRIP_COUNT];   // the TRIP A / TRIP B / START selector
   lv_obj_t* tripSegUl;             // the 2 px underline under the active one
   lv_obj_t* setInvertState;
@@ -429,6 +712,25 @@ static void stripChrome(lv_obj_t* o) {
   lv_obj_remove_flag(
       o, static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE));
 }
+
+// A DRAG IS NOT A TAP, and this is the one place that decides it.
+//
+// Every LV_EVENT_CLICKED handler on this instrument begins with it. LVGL
+// already drops CLICKED when a drag became a SCROLL -- but only when something
+// was scrollable in that direction with room to move, and the page scroller is
+// horizontal-only, so a vertical drag over any tap target produced a plain
+// click. That is why dragging up or down on the HEALTH faults strip opened the
+// drill-down and on a SETTINGS row toggled the setting.
+//
+// touchWasDrag() answers from LVGL's own LV_EVENT_GESTURE, which fires exactly
+// when no scroll was claimed -- see Touch.cpp. Between the two every drag is
+// accounted for: one suppresses the click itself, the other tells us to.
+//
+// It replaced four hand-rolled latches (a 12 px slop test, a remembered press
+// point, a scroll-offset comparison and two 250 ms settle windows) that each
+// knew about one symptom on one widget, leaked across page teardowns, and
+// between them swallowed real taps.
+static bool tapIsDrag(void) { return touchWasDrag(); }
 
 static lv_obj_t* mkScreen() {
   lv_obj_t* scr = lv_obj_create(nullptr);
@@ -533,25 +835,151 @@ static lv_obj_t* mkVRule(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, lv_coord_
 
 // ---- chrome ---------------------------------------------------------------
 
+// THE TAPE SCROLLS, THE MARKER DOES NOT.
+//
+// That is the arrangement of every aircraft HSI and of both compasses the owner
+// picked out: the heading you are on is always in the same place on the glass,
+// and the world slides past it. The alternative -- a pointer travelling along a
+// painted 0-360 scale -- puts 0.67 px on a degree at this width, so a whole
+// junction turn would shift the pointer 60 px and a lane change nothing at all.
+//
+// Everything is positioned on each refresh rather than laid out once, because
+// the whole widget is in motion. The pools are built here and only ever moved,
+// coloured and hidden afterwards; nothing is created or destroyed per frame.
+static void buildCompass(lv_obj_t* root) {
+  for (uint8_t i = 0; i < UI_COMPASS_TICKS; ++i) {
+    lv_obj_t* t = lv_obj_create(root);
+    stripChrome(t);
+    lv_obj_set_size(t, 1, UI_COMPASS_TICK_H);
+    lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
+    lv_obj_add_flag(t, LV_OBJ_FLAG_HIDDEN);
+    W.compTick[i] = t;
+  }
+  for (uint8_t i = 0; i < UI_COMPASS_NAMES; ++i) {
+    lv_obj_t* n = mkCentreLabel(root, "", UI_FONT_LABEL, UI_LABEL, 0,
+                                UI_COMPASS_Y, UI_COMPASS_NAME_W);
+    lv_obj_add_flag(n, LV_OBJ_FLAG_HIDDEN);
+    W.compName[i] = n;
+  }
+  // LAST, so it draws over a name passing under it.
+  // Row i is UI_COMPASS_MARK_W - 2i wide and inset i from the left, so every
+  // row stays centred on the same column and the shape tapers to one pixel.
+  const lv_coord_t cx = static_cast<lv_coord_t>(UI_COMPASS_X + UI_COMPASS_W / 2);
+  for (uint8_t i = 0; i < UI_COMPASS_MARK_H; ++i) {
+    lv_obj_t* r = lv_obj_create(root);
+    stripChrome(r);
+    lv_obj_set_size(r, static_cast<lv_coord_t>(UI_COMPASS_MARK_W - 2 * i), 1);
+    lv_obj_set_pos(r,
+                   static_cast<lv_coord_t>(cx - UI_COMPASS_MARK_W / 2 + i),
+                   static_cast<lv_coord_t>(UI_COMPASS_MARK_Y + i));
+    lv_obj_set_style_bg_color(r, UI_PRIMARY, 0);
+    lv_obj_set_style_bg_opa(r, LV_OPA_COVER, 0);
+    W.compMark[i] = r;
+  }
+}
+
+// The chain, and the diagonal that cancels it. Built once, then only
+// recoloured and shown/hidden -- setLinkIcon() below is the only thing that
+// touches it afterwards.
+// One diagonal block. `i` runs bottom-left to top-right; `size` is the block
+// and `inset` centres it on the core's position, so the halo pass and the line
+// pass land on the same diagonal with the halo 1px proud on every side.
+static lv_obj_t* mkSlashBlock(lv_obj_t* root, uint8_t i, lv_coord_t size,
+                              lv_color_t colour) {
+  const lv_coord_t span = UI_LINK_D - UI_LINK_CORE;   // travel of the core
+  const lv_coord_t step = (i * span) / (UI_LINK_SLASH_N - 1);
+  const lv_coord_t inset = (size - UI_LINK_CORE) / 2;
+
+  lv_obj_t* b = lv_obj_create(root);
+  stripChrome(b);
+  lv_obj_set_size(b, size, size);
+  lv_obj_set_pos(b,
+                 static_cast<lv_coord_t>(UI_LINK_X + step - inset),
+                 static_cast<lv_coord_t>(UI_LINK_Y + span - step - inset));
+  lv_obj_set_style_bg_color(b, colour, 0);
+  lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+  lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+  return b;
+}
+
+static void buildLinkIcon(lv_obj_t* root) {
+  const lv_coord_t x = UI_LINK_X;
+  const lv_coord_t y = UI_LINK_Y;
+  const lv_color_t c = linkIconColour();
+
+  // LV_RADIUS_CIRCLE on a square box is a ring. 2px of border keeps the hole
+  // open at 11px, where 1px reads as a grey smudge and 3px closes it up.
+  W.linkRing = mkOutline(root, x, y, UI_LINK_D, UI_LINK_D, LV_RADIUS_CIRCLE, c, 2);
+
+  // The bar through it, centred in both axes. Integer arithmetic on odd
+  // dimensions, so it is genuinely centred rather than a pixel off: 11 and 5
+  // leave 3 either side, 11 and 2 leave 4 above and 5 below -- which is the one
+  // place a pixel has to go somewhere, and high reads better than low against a
+  // circle.
+  W.linkDash = lv_obj_create(root);
+  stripChrome(W.linkDash);
+  lv_obj_set_size(W.linkDash, UI_LINK_DASH_W, UI_LINK_DASH_H);
+  lv_obj_set_pos(W.linkDash,
+                 static_cast<lv_coord_t>(x + (UI_LINK_D - UI_LINK_DASH_W) / 2),
+                 static_cast<lv_coord_t>(y + (UI_LINK_D - UI_LINK_DASH_H) / 2));
+  lv_obj_set_style_bg_color(W.linkDash, c, 0);
+  lv_obj_set_style_bg_opa(W.linkDash, LV_OPA_COVER, 0);
+
+  // HALOS FIRST, ALL OF THEM, then the line -- see the header comment. Both
+  // passes are built here so z-order is fixed at build time and no refresh has
+  // to think about it.
+  for (uint8_t i = 0; i < UI_LINK_SLASH_N; ++i) {
+    W.linkHalo[i] = mkSlashBlock(root, i, UI_LINK_HALO, UI_BG);
+  }
+  for (uint8_t i = 0; i < UI_LINK_SLASH_N; ++i) {
+    W.linkSlash[i] = mkSlashBlock(root, i, UI_LINK_CORE, UI_CRIT);
+  }
+  setLinkIcon();
+}
+
+// Paint the icon for the CURRENT s_linkOk. Separate from the builder because
+// uiLinkReady() can arrive at any moment and must reach a tree that already
+// exists -- and because a rebuild has to replay the state into new widgets.
+static void setLinkIcon(void) {
+  if (W.linkRing == nullptr) {
+    return;
+  }
+  const lv_color_t c = linkIconColour();
+  lv_obj_set_style_border_color(W.linkRing, c, 0);
+  lv_obj_set_style_bg_color(W.linkDash, c, 0);
+  for (uint8_t i = 0; i < UI_LINK_SLASH_N; ++i) {
+    if (s_linkOk) {
+      lv_obj_add_flag(W.linkHalo[i], LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(W.linkSlash[i], LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_remove_flag(W.linkHalo[i], LV_OBJ_FLAG_HIDDEN);
+      lv_obj_remove_flag(W.linkSlash[i], LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+}
+
 // Status bar and page dots live on the ROOT, not inside the pages, so they stay
 // put while the pages slide under them -- and so there is one of each rather
 // than five.
+//
+// THE "LINK" LEGEND IS GONE, in both bands, and the dot it labelled stays. The
+// word was 35 px spent restating what the dot says in colour -- green up, red
+// down -- and the compass tape needed the middle of the bar more than the dot
+// needed a caption. Nothing about the link readout changed: the same dot, in
+// the same corner, in the same two colours.
 static void buildStatusBar(lv_obj_t* root) {
   if (s_landscape) {
-    // Clock, page dots and link on one 22 px line, with buildDots() filling the
-    // middle.
+    // Clock, compass tape, page dots and link on one 22 px line, with
+    // buildDots() filling the space between the tape and the link dot.
     W.clockLbl = mkLabel(root, "--:--", UI_FONT_LABEL, UI_PRIMARY, 10, 3);
-    lv_obj_t* lk = mkRightLabel(root, "LINK", UI_FONT_LABEL, UI_DIM,
-                                static_cast<lv_coord_t>(UI_W - 21), 3);
-    lv_obj_set_style_text_letter_space(lk, 1, 0);
-    W.linkDot = mkDot(root, static_cast<lv_coord_t>(UI_W - 16), 8, 6, linkDotColour());
+    buildCompass(root);
+    buildLinkIcon(root);
     mkRule(root, UI_LS_STATUSBAR_H - 1, 0, UI_W);
     return;
   }
   W.clockLbl = mkLabel(root, "--:--", UI_FONT_LABEL, UI_PRIMARY, UI_PAD - 2, 5);
-  lv_obj_t* lk = mkLabel(root, "LINK", UI_FONT_LABEL, UI_DIM, 176, 5);
-  lv_obj_set_style_text_letter_space(lk, 1, 0);
-  W.linkDot = mkDot(root, 222, 11, 6, linkDotColour());
+  buildCompass(root);
+  buildLinkIcon(root);
   mkRule(root, UI_STATUSBAR_H - 1, 0, UI_W);
 }
 
@@ -562,7 +990,20 @@ static void buildStatusBar(lv_obj_t* root) {
 static void buildDots(lv_obj_t* root) {
   const lv_coord_t d = 5;
   const lv_coord_t step = 12;
-  const lv_coord_t x0 = (UI_W - (UI_SCREEN_COUNT * step - (step - d))) / 2;
+  const lv_coord_t span = UI_SCREEN_COUNT * step - (step - d);
+  // PORTRAIT centres them on a rail of their own at the foot of the screen.
+  //
+  // LANDSCAPE has no rail to spare, so the dots share the status bar -- and
+  // they used to be CENTRED in it, which is where the compass tape now goes.
+  // So they move right, into the space the "LINK" legend vacated, and the bar
+  // reads left to right as time, heading, where you are, link health.
+  //
+  // 35 px off the right edge puts the last dot at UI_W-35, and the link icon
+  // starts at UI_W-21 -- 14 px of gap, enough that the dots do not read as part
+  // of the icon, or as a tail on the compass tape the other side of them.
+  const lv_coord_t x0 = s_landscape
+                            ? static_cast<lv_coord_t>(UI_W - 35 - span)
+                            : static_cast<lv_coord_t>((UI_W - span) / 2);
   const lv_coord_t y = s_landscape
                            ? static_cast<lv_coord_t>((UI_LS_STATUSBAR_H - d) / 2)
                            : static_cast<lv_coord_t>(UI_H - 16);
@@ -623,12 +1064,22 @@ static void mkUnit(lv_obj_t* page, const char* text, lv_coord_t colRight,
   lv_obj_set_pos(u, static_cast<lv_coord_t>(colRight - UI_UNIT_BOX), y);
 }
 
+// `outCapL`/`outCapR` hand back the caption labels, for cells whose heading is
+// not constant -- COMPASS names the SELECTED trip meter, so its caption has to
+// follow the TRIP page's tabs. Defaulted, so no existing call changes.
 static void buildPair(lv_obj_t* page, lv_coord_t y, const char* capL, const char* capR,
                       lv_obj_t** outL, lv_obj_t** outR, const char* unitL,
-                      const char* unitR) {
+                      const char* unitR, lv_obj_t** outCapL = nullptr,
+                      lv_obj_t** outCapR = nullptr) {
   mkRule(page, y, 0, UI_W);
-  mkCaption(page, capL, UI_PAD - 2, y + 5);
-  mkCaption(page, capR, UI_W / 2 + UI_PAD - 2, y + 5);
+  lv_obj_t* cl = mkCaption(page, capL, UI_PAD - 2, y + 5);
+  lv_obj_t* cr = mkCaption(page, capR, UI_W / 2 + UI_PAD - 2, y + 5);
+  if (outCapL != nullptr) {
+    *outCapL = cl;
+  }
+  if (outCapR != nullptr) {
+    *outCapR = cr;
+  }
   *outL = mkLabel(page, "--", UI_FONT_MID, UI_PRIMARY, UI_PAD - 2, y + 20);
   *outR = mkLabel(page, "--", UI_FONT_MID, UI_PRIMARY, UI_W / 2 + UI_PAD - 2,
                   y + 20);
@@ -652,28 +1103,6 @@ static void buildPair(lv_obj_t* page, lv_coord_t y, const char* capL, const char
 //
 // `ruleUnder` is false for the last row of a stack, which is bounded by the
 // edge of the page rather than by a rule.
-// A page's UNIT KEY: the hero's unit, printed once at the top right in the
-// larger label face instead of trailing the numeral.
-//
-// A key and not an inline unit for a measured reason. At 20 px "L/100"
-// right-aligned to DRIVE's column starts at x=127 and the hero reaches x=137,
-// so inline stops fitting the moment the unit grows. As a key it fits on every
-// page in both bands, and it hands each hero the full width of its column --
-// which TRIP needs, since "247.8" alone is 164 px of 165.
-//
-// `capY` is the CAPTION's y, not the key's. The faces have different line
-// heights and base_lines (16/3 against 21/4), so matching their tops would
-// leave the key sitting visibly low; matching baselines means -4.
-#define UI_UNIT_KEY_DY (-4)
-
-static lv_obj_t* mkUnitKey(lv_obj_t* page, const char* text, lv_coord_t rightX,
-                           lv_coord_t capY) {
-  lv_obj_t* k = mkRightLabel(page, text, UI_FONT_UNIT, UI_LABEL, rightX,
-                             static_cast<lv_coord_t>(capY + UI_UNIT_KEY_DY));
-  lv_obj_set_style_text_letter_space(k, 2, 0);
-  return k;
-}
-
 // The hero's SUB-LINE: two short figures on one row, one pinned to each end of
 // the column.
 //
@@ -691,17 +1120,38 @@ static void mkHeroSub(lv_obj_t* page, lv_coord_t y, lv_coord_t leftX,
   *outR = mkRightLabel(page, "--", UI_FONT_LABEL, UI_DIM, rightX, y);
 }
 
+// `outCap` hands back the caption label, for the one row whose caption is not
+// constant: COMPASS shows the SELECTED trip meter, so its heading has to follow
+// the TRIP page's A / B / START tabs. Defaulted, so no existing call changes.
 static void mkStackRow(lv_obj_t* page, lv_coord_t y, lv_coord_t h, const char* cap,
-                       lv_obj_t** out, const char* unit, bool ruleUnder = true) {
-  // 16 px of label plus 35 of digits is 51, and it is CENTRED in whatever
-  // height the row is given rather than pinned to its top -- a stack of four
-  // 53s and one whose last row is 56 both have to look evenly set.
-  const lv_coord_t top = static_cast<lv_coord_t>(y + (h - 51) / 2);
-  mkCaption(page, cap, UI_LS_R_L, top);
+                       lv_obj_t** out, const char* unit, bool ruleUnder = true,
+                       lv_obj_t** outCap = nullptr) {
+  // 16 px of label plus 35 of digits was 51 in a 53 px row, and CENTRED in
+  // whatever height the row is given rather than pinned to its top -- a stack
+  // of four 53s and one whose last row is 56 both have to look evenly set.
+  //
+  // That left the digits 1 px off the rule beneath them, which is what they
+  // looked like. The cause is font_digits_30's base_line 0: its baseline IS
+  // the bottom of its line box, so unlike every other face here it has no
+  // descender space to absorb the difference.
+  //
+  // So the value now hangs off the CAPTION'S BASELINE (+13) rather than the
+  // bottom of the caption's line box (+16). An all-caps caption never uses
+  // font_label_14's 3 px of descender, so taking it back costs nothing
+  // visible, shortens the block to 48, and spends the 3 px on the gap that was
+  // wrong. 2 px above the caption, 3 below the digits, in a 53 px row.
+  const lv_coord_t top = static_cast<lv_coord_t>(y + (h - 48) / 2);
+  lv_obj_t* capLbl = mkCaption(page, cap, UI_LS_R_L, top);
+  if (outCap != nullptr) {
+    *outCap = capLbl;
+  }
   *out = mkLabel(page, "--", UI_FONT_MID, UI_PRIMARY, UI_LS_R_L,
-                 static_cast<lv_coord_t>(top + 16));
+                 static_cast<lv_coord_t>(top + 13));
   if (unit != nullptr) {
-    mkUnit(page, unit, UI_LS_R_R, static_cast<lv_coord_t>(top + 28));
+    // On the VALUE'S baseline (top + 13 + 35 - 13), which is the same rule the
+    // hero units now follow. It used to sit 10 px above it, which is why the
+    // stack and the hero looked like two different typographic systems.
+    mkUnit(page, unit, UI_LS_R_R, static_cast<lv_coord_t>(top + 35));
   }
   if (ruleUnder) {
     mkRule(page, static_cast<lv_coord_t>(y + h), UI_LS_DIV_X + 1, UI_LS_RIGHT_W);
@@ -719,10 +1169,48 @@ static void mkStackRow(lv_obj_t* page, lv_coord_t y, lv_coord_t h, const char* c
 // draw as a bar, and what is left in the tank underneath. Speed and rpm stay,
 // small, at the bottom -- useful for reading the average in context, not worth
 // the hero slot.
+static void onHeroTap(lv_event_t* e) {
+  // A drag that happened to end on the hero is not four taps, and not one.
+  if (tapIsDrag()) {
+    return;
+  }
+  if (lv_indev_get_short_click_streak(lv_indev_active()) != UI_EGG_TAPS) {
+    return;
+  }
+  // REQUESTED, not applied: the replay deletes and rebuilds a screen, and this
+  // is running inside LVGL's own event dispatch. Same discipline as the theme
+  // and orientation taps, for the same reason.
+  s_eggReq = true;
+}
+
+// An explicit zone rather than the hero LABEL: a label auto-sizes to its text,
+// so at "--" the target collapses to about 27 px and the gesture would only
+// work once there were digits to aim at.
+static void mkHeroTap(lv_obj_t* page, lv_coord_t x, lv_coord_t y, lv_coord_t w,
+                      lv_coord_t h) {
+  lv_obj_t* hit = lv_obj_create(page);
+  stripChrome(hit);
+  lv_obj_set_size(hit, w, h);
+  lv_obj_set_pos(hit, x, y);
+  lv_obj_add_flag(hit, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(hit, onHeroTap, LV_EVENT_SHORT_CLICKED, nullptr);
+}
+
 static void buildDrive(lv_obj_t* page) {
   mkCaption(page, "FROM START", UI_PAD - 2, 6);
-  mkUnitKey(page, "L/100", UI_W - (UI_PAD - 2), 6);
-  W.l100 = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_PAD - 4, 20);
+  W.l100 = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_PAD - 4,
+                   UI_HERO_Y);
+  mkHeroTap(page, 0, 18, UI_W, 76);
+  // ON THE NUMERAL'S BASELINE, not in the header -- the same place landscape
+  // and TRIP put it, so all three hero pages now read the same way in both
+  // bands. 35.3 px of label face right-aligned to 230 starts at 194.7; the
+  // hero starts at x=8 and refreshDrive()'s decimal rule caps it at "99.9"
+  // (127.1 px), so 59.6 px clear. Portrait does not NEED that rule -- even
+  // "100.0" at 159.1 would clear by 27.6 -- but landscape does, and a number
+  // that renders differently depending on which way the bracket faces is
+  // worse than a tenth nobody can use, so the rule is shared. See there
+  // before widening anything here.
+  mkUnit(page, "L/100", UI_W - (UI_PAD - 2), UI_HERO_UNIT_Y(UI_HERO_Y));
 
   // What this journey has covered and what its fuel cost -- the same window the
   // hero measures, so the whole top of the card is one drive.
@@ -772,15 +1260,30 @@ static void buildDrive(lv_obj_t* page) {
 static void buildDriveLs(lv_obj_t* page) {
   mkVRule(page, UI_LS_DIV_X, 0, UI_PAGE_H);
 
-  mkCaption(page, "FROM START", UI_LS_PAD, 8);
-  mkUnitKey(page, "L/100", UI_LS_L_R, 8);
-  W.l100 = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_LS_PAD - 2, 24);
-  mkHeroSub(page, 103, UI_LS_PAD, UI_LS_L_R, &W.driveDist, &W.driveCost);
+  mkCaption(page, "FROM START", UI_LS_PAD, 5);
+  W.l100 = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_LS_PAD - 2,
+                   UI_LS_HERO_Y);
+  mkHeroTap(page, 0, 22, UI_LS_DIV_X, 76);
+  // ON THE NUMERAL'S BASELINE, not in the header.
+  //
+  // The header key was the safe place for it and is why this ever differed
+  // from TRIP: at font_label_20 an inline "L/100" is 44 px and starts where
+  // the hero ends. The label face is 35 px, which fits -- but only just, and
+  // only because of the decimal rule in refreshDrive(): right-aligned to the
+  // column edge the unit's left edge is 162, the hero starts at x=8, and
+  // "100.0" is 159 px wide. See there before widening anything here.
+  mkUnit(page, "L/100", UI_LS_L_R, UI_LS_HERO_UNIT_Y);
+  mkHeroSub(page, UI_LS_HERO_SUB_Y, UI_LS_PAD, UI_LS_L_R, &W.driveDist,
+            &W.driveCost);
   // Landscape's column is only 165 px wide but has 57 px of air under the
   // sub-line, so the third figure gets a SECOND line instead of being squeezed
   // onto the first. Same three figures, same words, different arrangement --
   // which is what the two bands do everywhere else.
-  W.driveAccel3 = mkLabel(page, "", UI_FONT_LABEL, UI_DIM, UI_LS_PAD, 121);
+  // Under the sub-line, which is 16 px tall from UI_LS_HERO_SUB_Y -- derived
+  // rather than typed, so the two cannot overlap the next time the sub-line
+  // moves. That is exactly what happened when it went 103 -> 108.
+  W.driveAccel3 = mkLabel(page, "", UI_FONT_LABEL, UI_DIM, UI_LS_PAD,
+                          UI_LS_HERO_SUB_Y + 18);
   lv_obj_add_flag(W.driveAccel3, LV_OBJ_FLAG_HIDDEN);
 
   // The flow block sits on the floor of the column rather than under the hero:
@@ -822,22 +1325,42 @@ static void buildDriveLs(lv_obj_t* page) {
   mkStackRow(page, 162, 56, "ENGINE", &W.rpm, "rpm", false);
 }
 
+// ---- THE CORNERS ARE MAPPED -------------------------------------------------
+//
+// On the owner's word: asking the WCM for sensor IDs enumerates them
+// **LF, RF, RR, RL, then the spare**. So `21 3B`'s four bytes are that order,
+// and index 0..3 are left-front, right-front, right-rear, left-rear.
+//
+// This RETIRES a rule this file held for a long time -- "naming them LF/RF/LR/RR
+// would be a guess, and a guess about which tyre is soft is worse than no name"
+// -- and it is retired the way it was set, by the owner saying so. It also
+// corroborates itself: LF -> RF -> RR -> RL is CLOCKWISE FROM THE FRONT LEFT,
+// the conventional TPMS enumeration, not an arbitrary permutation. A single-
+// wheel deflation test is still the one check that cannot be argued with, and
+// is worth doing one day.
+static const char* const kTyreCap[4] = {"LEFT FRONT", "RIGHT FRONT",
+                                        "RIGHT REAR", "LEFT REAR"};
+
+// Sensor index at each GRID POSITION -- top-left, top-right, bottom-left,
+// bottom-right -- and NOT the identity. This is the whole trap in the mapping:
+// the enumeration runs clockwise, so the two REAR corners arrive in the
+// opposite left-right order to the fronts. Laying the cells out in index order
+// would put RIGHT REAR on the left of the screen and LEFT REAR on the right --
+// a grid that names the corners and puts them on the wrong sides is worse than
+// the SENSOR 1..4 it replaces, because it is confidently wrong rather than
+// honestly silent.
+static const uint8_t kTyreSlot[4] = {0, 1, 3, 2};
+
 static void buildTyres(lv_obj_t* page) {
   buildHeader(page, "TYRES", nullptr);
 
-  // Cells are labelled by sensor index because which physical corner each
-  // sensor sits on is genuinely unknown -- `21 3B` gives four bytes in a fixed
-  // order and nothing in the captures says which wheel is which. Naming them
-  // LF/RF/LR/RR would be a guess, and a guess about which tyre is soft is worse
-  // than no name at all. Deflating one wheel and watching which value moves is
-  // the only way to map them.
-  static const char* const kCaps[4] = {"SENSOR 1", "SENSOR 2", "SENSOR 3", "SENSOR 4"};
   mkRule(page, 32, 0, UI_W);
-  for (uint8_t i = 0; i < 4; ++i) {
-    const lv_coord_t x = (i & 1u) ? UI_W / 2 + UI_PAD - 2 : UI_PAD - 2;
-    const lv_coord_t y = static_cast<lv_coord_t>(40 + (i >> 1) * 74);
-    mkCaption(page, kCaps[i], x, y);
-    W.tyre[i] =
+  for (uint8_t p = 0; p < 4; ++p) {
+    const uint8_t t = kTyreSlot[p];
+    const lv_coord_t x = (p & 1u) ? UI_W / 2 + UI_PAD - 2 : UI_PAD - 2;
+    const lv_coord_t y = static_cast<lv_coord_t>(40 + (p >> 1) * 74);
+    mkCaption(page, kTyreCap[t], x, y);
+    W.tyre[t] =
         mkLabel(page, "--", UI_FONT_MID, UI_PRIMARY, x, static_cast<lv_coord_t>(y + 16));
     mkLabel(page, "bar", UI_FONT_LABEL, UI_LABEL, static_cast<lv_coord_t>(x + 72),
             static_cast<lv_coord_t>(y + 28));
@@ -880,25 +1403,27 @@ static void buildTyres(lv_obj_t* page) {
 // index order, implying no geometry at all. The layout finally says the same
 // thing the caption has always said.
 //
-// The unit moves to the title as one BAR key. Printing "bar" four times is
-// noise, and the width it costs is the width the cells need.
+// The unit sits IN each cell, four times, and NOT as one BAR key in the
+// header. The key was the earlier call -- printing "bar" four times looked
+// like noise, and the header had the room. It was wrong for the same reason
+// the hero unit keys are right: a key belongs to a HERO, the one number the
+// page is about. This page has four equal numbers, so a single key at the top
+// right belongs to none of them, and it sits closest to SENSOR 2 -- exactly
+// the cell a driver would read it as qualifying. Portrait has always put a
+// "bar" in every cell; both bands now say the same thing in the same place.
+// Owner's instruction, and the width turned out to be there: see the
+// clearances measured over the mkUnit call below.
 static void buildTyresLs(lv_obj_t* page) {
   buildHeader(page, "TYRES", nullptr);
-  mkUnitKey(page, "BAR", UI_LS_R_R, 5);
   mkRule(page, 22, 0, UI_W);
 
-  static const char* const kCaps[4] = {"SENSOR 1", "SENSOR 2", "SENSOR 3", "SENSOR 4"};
-
-  // A 2 x 2, reading order: 1 2 on the top row, 3 4 on the bottom. It was four
-  // columns in index order, and that was the more conservative arrangement --
-  // a grid implies front/rear and left/right, and `21 3B` gives four bytes in
-  // a fixed order with nothing in the captures saying which wheel is which.
-  // Four across made no claim; a 2 x 2 of numbers invites one.
+  // A 2 x 2 laid out as the CAR is, now that the corners are named -- see
+  // kTyreSlot above for why the bottom row is not in index order.
   //
-  // Asked for anyway, and it is the driver's call to make: the cells still say
-  // SENSOR, not LF/RF/LR/RR, so the layout suggests a shape while the labels
-  // refuse to name a corner. Nothing here should be read as a mapping until
-  // one is actually measured -- deflate a wheel, watch which index moves.
+  // The grid was always the arrangement that "invites a claim about front/rear
+  // and left/right", which is exactly why it was drawn with SENSOR 1..4 until
+  // the claim could be made. It can be made now, so the shape the layout was
+  // already suggesting is the shape the labels state.
   const lv_coord_t cellW = (UI_W - 1) / 2;                // 159, one 1 px rule
   const lv_coord_t top = 23;
   const lv_coord_t regionH = 146;
@@ -908,13 +1433,51 @@ static void buildTyresLs(lv_obj_t* page) {
   const lv_coord_t capDY = static_cast<lv_coord_t>((rowH - 51) / 2);
   mkVRule(page, cellW, top, regionH);
   mkRule(page, static_cast<lv_coord_t>(top + rowH), 0, UI_W);
-  for (uint8_t i = 0; i < 4; ++i) {
-    const lv_coord_t x = (i & 1u) ? static_cast<lv_coord_t>(cellW + 1) : 0;
+  for (uint8_t p = 0; p < 4; ++p) {
+    const uint8_t t = kTyreSlot[p];
+    const lv_coord_t x = (p & 1u) ? static_cast<lv_coord_t>(cellW + 1) : 0;
     const lv_coord_t capY =
-        static_cast<lv_coord_t>(top + (i >> 1) * rowH + capDY);
-    mkCentreLabel(page, kCaps[i], UI_FONT_LABEL, UI_LABEL, x, capY, cellW);
-    W.tyre[i] = mkCentreLabel(page, "--", UI_FONT_MID, UI_PRIMARY, x,
+        static_cast<lv_coord_t>(top + (p >> 1) * rowH + capDY);
+    mkCentreLabel(page, kTyreCap[t], UI_FONT_LABEL, UI_LABEL, x, capY, cellW);
+    W.tyre[t] = mkCentreLabel(page, "--", UI_FONT_MID, UI_PRIMARY, x,
                               static_cast<lv_coord_t>(capY + 16), cellW);
+
+    // The unit is RIGHT-ALIGNED INSIDE THE CELL, not trailed after the number.
+    //
+    // The value is CENTRED in its 159 px cell and its width changes with the
+    // reading -- "--" is 27 px, "2.34" is 62, a garbage 255 raw byte prints
+    // "17.58" at 71. So a unit placed after the glyphs would slide sideways
+    // every time a corner updated, on four cells at once, and the one thing
+    // this page is for is being read at a glance. A one-shot right-aligned
+    // box cannot move whatever the number does, and it is what every other
+    // unit on the instrument already does (buildPair, mkStackRow, the hero
+    // units): units line up on a column edge rather than chasing a numeral.
+    //
+    // MEASURED, from adv_w in src/fonts/*.c (1/16 px, letter_space 0 here):
+    // "bar" in font_label_14 is (126+121+87)/16 = 20.9 px, so its left edge
+    // is at 149-20.9 = 128.1 in the left cell. Centred values in a 159 px
+    // cell reach:  "2.34" 62.0 -> right edge 110.5, clearance 17.6 px;
+    // "17.58" 71.3 -> 115.1, clearance 13.0; and the widest string the
+    // formatter can physically emit (raw 255 * UI_PSI_TO_BAR caps at 17.58,
+    // so two digits always start with '1') is a "10.00"-shape at 75.9 ->
+    // 117.5, clearance 10.6 px. Nothing here can touch the unit.
+    //
+    // Right edge: the RIGHT cell shares the page's content edge with TARGET
+    // below it, so both right-hand columns of this page line up; the LEFT
+    // cell insets the same 10 px from the column rule at x=cellW instead.
+    // (x + cellW - UI_LS_PAD would be 309 for the right cell -- 1 px inboard,
+    // because 320 is odd and the spare pixel lives at x=319. Invisible on its
+    // own, but it would break the alignment with TARGET, which is not.)
+    //
+    // y is the VALUE'S BASELINE: the value's top is capY+16 and
+    // font_digits_30 is line_height 35 / base_line 0, so its baseline is
+    // capY+51; font_label_14 carries its own baseline 13 px down, hence -13.
+    // Same rule mkStackRow and the hero units were just changed to follow --
+    // sitting the unit on the value's line box instead leaves it 3 px low and
+    // makes the two faces read as two typographic systems.
+    mkUnit(page, "bar",
+           (p & 1u) ? UI_LS_R_R : static_cast<lv_coord_t>(cellW - UI_LS_PAD),
+           static_cast<lv_coord_t>(capY + 16 + 35 - 13));
   }
   mkRule(page, 169, 0, UI_W);
 
@@ -967,23 +1530,25 @@ static lv_obj_t* mkSettingRow(lv_obj_t* page, lv_coord_t y, const char* name,
   return st;
 }
 
-// A read-only diagnostic line for the info block. `slot` says which of the
-// three it is: the value is right-aligned, so every text change has to
-// re-align it, and only the builder knows where it was put -- portrait stacks
-// these down the page, landscape lays them across a strip along the bottom.
-static lv_obj_t* mkInfoRow(lv_obj_t* page, uint8_t slot, const char* name,
+// A read-only diagnostic line for the info block: a caption on the left and a
+// right-aligned value pinned to `valRight`. Portrait stacks these down the
+// page, landscape lays them across a strip along the bottom, and the builder is
+// the only thing that has to know which -- the anchor lives in the label's own
+// style from here on (see the note by the orientation block).
+static lv_obj_t* mkInfoRow(lv_obj_t* page, const char* name,
                            lv_coord_t capX, lv_coord_t capY, lv_coord_t valRight) {
   mkCaption(page, name, capX, capY);
   // Same y as the caption. The value used to be lifted 3 px, which is a habit
   // from pairing a label face against a digit face -- and both of these are
   // font_label_14, so it simply read as two words that failed to line up. Most
   // obvious in landscape, where the pair sits side by side on one strip.
-  s_infoX[slot] = valRight;
-  s_infoY[slot] = capY;
-  return mkRightLabel(page, "--", UI_FONT_LABEL, UI_DIM, valRight, s_infoY[slot]);
+  return mkRightLabel(page, "--", UI_FONT_LABEL, UI_DIM, valRight, capY);
 }
 
 static void onThemeTap(lv_event_t* e) {
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
+  }
   (void)e;
   const uint8_t next = (uint8_t)((uiThemeGet() + 1u) % UI_THEME_COUNT);
   (void)settingsSetTheme(next);
@@ -997,6 +1562,9 @@ static void onThemeTap(lv_event_t* e) {
 // do not earn three rows on a page whose whole argument is that it does not
 // invent options.
 static void onOrientTap(lv_event_t* e) {
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
+  }
   (void)e;
   const uint8_t next = (uint8_t)((s_orient + 1u) % UI_ORIENT_COUNT);
   (void)settingsSetOrientation(next);
@@ -1079,8 +1647,10 @@ static void priceEvent(lv_event_t* e, int16_t dir) {
     case LV_EVENT_CLICKED:
       // A long press ends in a release, and a release sends CLICKED too -- so
       // without the latch the finger coming off a held button would add one
-      // more step on top of everything the repeat already did.
-      if (!s_priceHeld) {
+      // more step on top of everything the repeat already did. tapIsDrag()
+      // is the other half: a swipe that began on the button must not spend a
+      // cent on its way past.
+      if (!s_priceHeld && !tapIsDrag()) {
         priceStep(static_cast<int16_t>(dir * static_cast<int16_t>(UI_PRICE_STEP)));
       }
       break;
@@ -1190,10 +1760,10 @@ static void buildSettings(lv_obj_t* page) {
   mkCaption(page, "INFO", UI_PAD - 2, UI_SET_INFO_CAP);
 
   const lv_coord_t vr = UI_W - (UI_PAD - 2);
-  W.setLink = mkInfoRow(page, 0, "LINK", UI_PAD - 2, UI_SET_INFO_ROW0, vr);
-  W.setAdapter = mkInfoRow(page, 1, "ADAPTER", UI_PAD - 2,
+  W.setLink = mkInfoRow(page, "LINK", UI_PAD - 2, UI_SET_INFO_ROW0, vr);
+  W.setAdapter = mkInfoRow(page, "ADAPTER", UI_PAD - 2,
                            UI_SET_INFO_ROW0 + UI_SET_INFO_STEP, vr);
-  W.setBus = mkInfoRow(page, 2, "BUS", UI_PAD - 2,
+  W.setBus = mkInfoRow(page, "BUS", UI_PAD - 2,
                        UI_SET_INFO_ROW0 + 2 * UI_SET_INFO_STEP, vr);
 }
 
@@ -1225,31 +1795,30 @@ static void buildSettingsLs(lv_obj_t* page) {
   // The remaining placeholder row is the gap between here and the strip. It is
   // left genuinely empty rather than filled with a disabled-looking control.
   mkRule(page, 186, 0, UI_W);
-  W.setLink = mkInfoRow(page, 0, "LINK", UI_LS_PAD, 193, 104);
-  W.setAdapter = mkInfoRow(page, 1, "ADAPTER", 112, 193, 212);
-  W.setBus = mkInfoRow(page, 2, "BUS", 222, 193, UI_LS_R_R);
+  W.setLink = mkInfoRow(page, "LINK", UI_LS_PAD, 193, 104);
+  W.setAdapter = mkInfoRow(page, "ADAPTER", 112, 193, 212);
+  W.setBus = mkInfoRow(page, "BUS", 222, 193, UI_LS_R_R);
 }
 
 // Defined further down with the other value-setters; used here because the
 // settings page is built alongside its peers rather than after them.
 static void setColourIfChanged(lv_obj_t* lbl, lv_color_t c);
 
-// Right-aligned text that only repaints when it changed.
+// Text that only repaints when it changed.
 //
 // lv_label_set_text() invalidates unconditionally, so setting the same string
-// every refresh would keep three labels redrawing at 10 Hz for nothing -- and
-// the re-align afterwards is only needed because the width may have changed.
-static void setInfoText(lv_obj_t* lbl, uint8_t slot, const char* txt) {
+// every refresh would keep three labels redrawing at 10 Hz for nothing. That is
+// all this now is -- the re-align that used to follow the write is gone, and
+// the note by the orientation block says why it was never doing anything.
+//
+// The null guard is the only reason this is not just setTextIfChanged: the info
+// labels are read on a refresh that can outlive the tree it drew, and this one
+// is called three times off a single W.setLink test.
+static void setInfoText(lv_obj_t* lbl, const char* txt) {
   if (lbl == nullptr) {
     return;
   }
-  const char* cur = lv_label_get_text(lbl);
-  if (cur != nullptr && strcmp(cur, txt) == 0) {
-    return;
-  }
-  lv_label_set_text(lbl, txt);
-  lv_obj_align(lbl, LV_ALIGN_TOP_RIGHT,
-               static_cast<lv_coord_t>(s_infoX[slot] - UI_W), s_infoY[slot]);
+  setTextIfChanged(lbl, txt);
 }
 
 // The info block. Cheap enough to run every cycle, but the bus rate needs a
@@ -1260,24 +1829,24 @@ static void refreshSettings(uint32_t now) {
   if (W.setLink == nullptr) {
     return;
   }
-  setInfoText(W.setLink, 0, s_linkMode);
+  setInfoText(W.setLink, s_linkMode);
   setColourIfChanged(W.setLink,
                      (strcmp(s_linkMode, "DOWN") == 0) ? UI_CRIT : UI_PRIMARY);
 
-  setInfoText(W.setAdapter, 1, s_linkAdapter);
+  setInfoText(W.setAdapter, s_linkAdapter);
 
-  if (s_bcast != nullptr) {
+  {
     if (s_busLastMs == 0u) {
       s_busLastMs = now;
-      s_busLastFrames = s_bcast->frames;
+      s_busLastFrames = s_snap.frames;
     } else if (now - s_busLastMs >= 2000u) {
-      const uint32_t d = s_bcast->frames - s_busLastFrames;
+      const uint32_t d = s_snap.frames - s_busLastFrames;
       const uint32_t ms = now - s_busLastMs;
       s_busLastMs = now;
-      s_busLastFrames = s_bcast->frames;
+      s_busLastFrames = s_snap.frames;
       char buf[16];
       snprintf(buf, sizeof(buf), "%u f/s", (unsigned)((d * 1000u) / (ms ? ms : 1u)));
-      setInfoText(W.setBus, 2, buf);
+      setInfoText(W.setBus, buf);
     }
   }
 }
@@ -1339,32 +1908,6 @@ static uint16_t  s_faultDlgCode = 0u;
 static uint32_t s_clearArmMs = 0u;    // lv_tick the first tap armed it; 0 = idle
 static uint32_t s_clearSentMs = 0u;   // lv_tick the request went out; 0 = none
 
-// ONE FINGERTIP CAN PRODUCE SEVERAL CLICKS on this panel, and a dialog that
-// appears or disappears under that fingertip is where it shows.
-//
-// The CST328 reports slowly enough that Touch.cpp has to bridge a contact with
-// a release hold, and a contact can still arrive as more than one press --
-// documented in CLAUDE.md, where a flat 20 ms hold put two CLICKEDs inside the
-// double-tap window on TRIP. Harmless while every control was a static widget.
-// Not harmless once a tap BUILDS a widget under the finger: the trailing click
-// landed on the dialog that had just appeared, and (when the scrim still
-// dismissed on a tap) the one after that landed on the LIST the dialog had
-// just stopped covering -- so a tap read as passing straight through the
-// dialog into the row behind it, opening another.
-//
-// So both edges are deaf for a moment: the dialog ignores its own controls for
-// SETTLE ms after it is built, and the list ignores row taps for SETTLE ms
-// after a dialog closes. 250 ms is far longer than the stray click and far
-// shorter than a second, deliberate tap.
-#define UI_DLG_SETTLE_MS 250u
-static uint32_t s_faultDlgOpenMs = 0u;     // lv_tick the dialog was built at
-static uint32_t s_faultDlgClosedMs = 0u;   // lv_tick the last one was deleted
-
-// True once the dialog has been up long enough to be acted on.
-static bool faultDlgSettled(void) {
-  return s_faultDlgOpenMs != 0u &&
-         lv_tick_elaps(s_faultDlgOpenMs) >= UI_DLG_SETTLE_MS;
-}
 
 static void faultDlgShow(bool open, uint8_t index);
 static void refreshFaultDlg(void);
@@ -1385,45 +1928,6 @@ static void faultDlgForget(void) {
   W.dlgClearLbl = nullptr;
   s_clearArmMs = 0u;
   s_clearSentMs = 0u;
-  s_faultDlgOpenMs = 0u;
-}
-
-// How far a finger may travel and still be a tap.
-//
-// LVGL's own suppression is not enough here, and the reason is worth knowing:
-// it drops LV_EVENT_CLICKED only when the press actually became a SCROLL
-// (lv_indev.c, `if(scroll_obj == NULL)`), and a scroll only starts when the
-// object has somewhere to go in that direction. A list whose rows happen to
-// fit -- five faults at 40 px in portrait's 206 px, which is the common case --
-// has nothing to scroll, so every drag across it arrived as a click and opened
-// a dialog. From the driver's side the list simply could not be dragged.
-//
-// 12 px, just past LV_INDEV_DEF_SCROLL_LIMIT's 10: a deliberate drag is always
-// further than that, and a fingertip's roll on a 40 px row never is.
-#define UI_FAULT_TAP_SLOP 12
-
-// Where the press started, and what the list had already scrolled to.
-//
-// Both are needed. The travel test catches a drag on a list with nothing to
-// scroll; the scroll-offset test catches the other end of it -- a press that
-// landed while an inertial scroll was still settling, where the finger barely
-// moves but the row under it does.
-static lv_coord_t s_rowPressY = 0;
-static int32_t    s_rowPressScroll = 0;
-static bool       s_rowPressed = false;
-
-static void onFaultRowPress(lv_event_t* e) {
-  lv_obj_t* list = static_cast<lv_obj_t*>(lv_event_get_target(e));
-  lv_indev_t* indev = lv_indev_active();
-  if (list == nullptr || indev == nullptr) {
-    s_rowPressed = false;
-    return;
-  }
-  lv_point_t p;
-  lv_indev_get_point(indev, &p);
-  s_rowPressY = (lv_coord_t)p.y;
-  s_rowPressScroll = lv_obj_get_scroll_y(list);
-  s_rowPressed = true;
 }
 
 // A tap on a row OPENS that fault; it no longer mutes it.
@@ -1440,11 +1944,14 @@ static void onFaultRowPress(lv_event_t* e) {
 // already costs sixty-odd objects; sixteen more to answer a question the y
 // coordinate already answers would be paying twice.
 //
-// LVGL only sends CLICKED when the press did not turn into a scroll, so this
-// cannot fire while the list is being dragged -- which is exactly what makes
-// tap-to-open safe on a list that also scrolls.
+// LVGL sends CLICKED only when the press did not turn into a scroll, and
+// tapIsDrag() covers the case it cannot -- a list too short to have anywhere
+// to scroll, where LVGL claims nothing and therefore suppresses nothing. That
+// pair replaced a 12 px slop test against a remembered press point plus a
+// scroll-offset comparison, which lived only here and left its state behind on
+// a page teardown.
 static void onFaultRowTap(lv_event_t* e) {
-  if (s_faults == nullptr) {
+  if (tapIsDrag()) {
     return;
   }
   lv_obj_t* list = static_cast<lv_obj_t*>(lv_event_get_target(e));
@@ -1454,27 +1961,6 @@ static void onFaultRowTap(lv_event_t* e) {
   }
   lv_point_t p;
   lv_indev_get_point(indev, &p);
-
-  // A DRAG, not a tap: the finger travelled, or the list moved under it. Doing
-  // nothing is the whole point -- the scroll (or the attempt at one) was the
-  // gesture, and opening a dialog on the way out of it is what made the list
-  // feel like it could not be scrolled at all.
-  // A dialog closed a moment ago: this is the rest of the contact that closed
-  // it, not a new tap on the row now showing through the gap.
-  if (s_faultDlgClosedMs != 0u &&
-      lv_tick_elaps(s_faultDlgClosedMs) < UI_DLG_SETTLE_MS) {
-    s_rowPressed = false;
-    return;
-  }
-
-  const int32_t scrolled = lv_obj_get_scroll_y(list);
-  if (!s_rowPressed ||
-      LV_ABS((int32_t)p.y - (int32_t)s_rowPressY) > UI_FAULT_TAP_SLOP ||
-      scrolled != s_rowPressScroll) {
-    s_rowPressed = false;
-    return;
-  }
-  s_rowPressed = false;
 
   lv_area_t a;
   lv_obj_get_coords(list, &a);
@@ -1563,16 +2049,25 @@ static bool faultPageOpen(void) {
 // Tapping the FAULTS block on HEALTH OPENS the list. It no longer scans:
 // re-reading is a button on the page itself, next to what it would replace.
 static void onFaultsTap(lv_event_t* e) {
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
+  }
   (void)e;
   faultPageShow(true);
 }
 
 static void onFaultBack(lv_event_t* e) {
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
+  }
   (void)e;
   faultPageShow(false);
 }
 
 static void onFaultReread(lv_event_t* e) {
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
+  }
   (void)e;
   if (s_faultRescan != nullptr) {
     s_faultRescan();
@@ -1591,35 +2086,164 @@ static void mkFaultsTap(lv_obj_t* page, lv_coord_t x, lv_coord_t y, lv_coord_t w
   lv_obj_add_event_cb(hit, onFaultsTap, LV_EVENT_CLICKED, nullptr);
 }
 
+// ---- COMPASS ---------------------------------------------------------------
+//
+// The dial is built once and only ever MOVED, resized, recoloured and hidden --
+// 24 dots, 8 names, the fixed marker, and the readouts. Nothing is created or
+// destroyed per frame, which matters here more than on any other page because
+// this one animates continuously.
+//
+// The marks are handed out FAR-FIRST by compassDial(), and the widget pool is
+// indexed in that same order. That is why the emission order had to be rigid
+// under rotation rather than merely sorted: a stable sort re-ordered ties as
+// the truck turned through north, and two dots would have swapped widgets
+// mid-turn -- invisible in a still frame, a flicker in motion.
+static void buildDialCommon(lv_obj_t* page) {
+  for (uint8_t i = 0; i < COMPASS_DIAL_MARKS; ++i) {
+    lv_obj_t* d = lv_obj_create(page);
+    stripChrome(d);
+    lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+    lv_obj_add_flag(d, LV_OBJ_FLAG_HIDDEN);
+    W.dialDot[i] = d;
+  }
+  for (uint8_t i = 0; i < UI_DIAL_NAMES; ++i) {
+    lv_obj_t* n = mkCentreLabel(page, "", UI_FONT_LABEL, UI_LABEL, 0, 0,
+                                UI_DIAL_NAME_W);
+    lv_obj_add_flag(n, LV_OBJ_FLAG_HIDDEN);
+    W.dialName[i] = n;
+  }
+  // The 8-way letters, in the middle of the ring. The letter at the TOP of the
+  // dial is already the answer, but only if you know to read it there -- this
+  // states it, and it is what the owner asked to see spelled out.
+  W.dialOctant = mkCentreLabel(page, "--", UI_FONT_UNIT, UI_PRIMARY,
+                               static_cast<lv_coord_t>(UI_DIAL_CX - 30),
+                               static_cast<lv_coord_t>(UI_DIAL_CY + 4), 60);
+  // The vehicle. Row 0 is the apex; the width steps to UI_DIAL_ARROW_W at the
+  // base, which sits ON the centre so the ring turns about the arrow's root.
+  const lv_coord_t cx = UI_DIAL_CX;
+  for (uint8_t i = 0; i < UI_DIAL_ARROW_ROWS; ++i) {
+    const lv_coord_t w = static_cast<lv_coord_t>(
+        1 + ((UI_DIAL_ARROW_W - 1) * i) / (UI_DIAL_ARROW_ROWS - 1));
+    lv_obj_t* r = lv_obj_create(page);
+    stripChrome(r);
+    lv_obj_set_size(r, w, 2);
+    lv_obj_set_pos(r, static_cast<lv_coord_t>(cx - w / 2),
+                   static_cast<lv_coord_t>(UI_DIAL_CY - UI_DIAL_ARROW_H + i * 2));
+    lv_obj_set_style_bg_color(r, UI_PRIMARY, 0);
+    lv_obj_set_style_bg_opa(r, LV_OPA_COVER, 0);
+    W.dialArrow[i] = r;
+  }
+}
+
+// PORTRAIT. Ring spans UI_DIAL_CY - 38 .. UI_DIAL_CY + 71 (118 -> 80..189), the
+// hero sits under it, and the three supporting figures share one sub-line the
+// way DRIVE's do -- left, centre, right -- because three small facts do not
+// each deserve a grid cell.
+static void buildDial(lv_obj_t* page) {
+  buildHeader(page, "COMPASS", nullptr);
+  buildDialCommon(page);
+
+  // FOUR EQUAL CELLS, not a hero and three footnotes -- owner's instruction,
+  // and it makes the two bands say the same thing in the same order. Landscape
+  // reads SPEED, TRIP, OUTSIDE, BEARING down its stack; portrait reads the same
+  // four across two rows, so rotating the panel rearranges nothing.
+  //
+  // It also retires the last hero on this page. The bearing was one because the
+  // page is about bearing -- but the DIAL is the hero here, and a 73px numeral
+  // under it was competing with the picture rather than supporting it.
+  //
+  // Ring 34..143, pairs at 152 and 210, closing rule 268, dots at 278.
+  buildPair(page, 152, "SPEED", "TRIP", &W.dialSpeed, &W.dialTrip, "km/h", "km",
+            nullptr, &W.dialTripCap);
+  buildPair(page, 210, "OUTSIDE", "BEARING", &W.dialTemp, &W.dialHeading,
+            UI_DEG "C", UI_DEG);
+  mkRule(page, 268, 0, UI_W);
+}
+
+// LANDSCAPE. Dial and hero in the left column, the three figures as a right
+// stack -- the arrangement every other landscape page uses, so COMPASS is not a
+// second design. All three are numeric, so mkStackRow() works unchanged; only
+// the TRIP caption has to move, which is what its outCap is for.
+static void buildDialLs(lv_obj_t* page) {
+  buildHeader(page, "COMPASS", nullptr);
+  mkVRule(page, UI_LS_DIV_X, 0, UI_PAGE_H);
+  buildDialCommon(page);
+
+  // THE BEARING IS THE FOURTH BOX, not a hero under the dial -- owner's
+  // instruction, and it also fixes a real defect. As a hero at y=170 the
+  // 73px-tall face ran to 243 in a 218px page: the number was being clipped by
+  // the bottom of the panel and nobody would have seen the top of the glyphs
+  // was fine. The left column is now the dial alone, so the ring gets the whole
+  // height and is centred in it (ry 42 -> 46, cy 100 -> 107).
+  mkStackRow(page, 0, UI_LS_ROW_H, "SPEED", &W.dialSpeed, "km/h");
+  mkStackRow(page, 54, UI_LS_ROW_H, "TRIP", &W.dialTrip, "km", true,
+             &W.dialTripCap);
+  mkStackRow(page, 108, UI_LS_ROW_H, "OUTSIDE", &W.dialTemp, UI_DEG "C");
+  mkStackRow(page, 162, 56, "BEARING", &W.dialHeading, UI_DEG, false);
+}
+
 static void buildHealth(lv_obj_t* page) {
   buildHeader(page, "HEALTH", nullptr);
 
-  mkUnitKey(page, "V", UI_W - (UI_PAD - 2), 5);
-  W.healthVolts = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_PAD - 4, 20);
+  W.healthVolts = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_PAD - 4,
+                          UI_HERO_Y);
+  // On the numeral's baseline, as DRIVE and TRIP are. "V" is 8.4 px in the
+  // label face, so its left edge is 221.6 and even an absurd "888.8" (168.8
+  // px from x=8) stops 44.8 px short of it. This unit never had to move; it
+  // moved so the three hero pages say the same thing in the same place.
+  mkUnit(page, "V", UI_W - (UI_PAD - 2), UI_HERO_UNIT_Y(UI_HERO_Y));
+
+  // THE TANK, on the hero's sub-line -- the same slot DRIVE and TRIP use, so
+  // all three hero pages now carry one. It is the right page for it: a tank
+  // percentage is a state-of-the-vehicle fact read before setting off, like the
+  // voltage above it and the two temperatures below, and not a thing to watch
+  // while moving. DRIVE deliberately gave it up when that card became about
+  // what the engine is DRINKING rather than what is left.
+  //
+  // 95 and not DRIVE's 96, and the one pixel is real: HEALTH's block below is
+  // 20 px taller than DRIVE's and the portrait page has exactly 20 px of slack
+  // above the dot rail. See the shifted coordinates below -- every one of them
+  // moved by 20, and the last of them now ends 4 px clear of the dots.
+  //
+  // ONE label holding word, number and unit, for the reason mkHeroSub() gives:
+  // the number's width changes and a neighbour drawn separately would shuffle
+  // sideways every time it did.
+  //
+  // THE NUMBER ITSELF IS UNVERIFIED, and that is worth knowing at the place it
+  // is drawn rather than only in CLAUDE.md. `CCN.Fuel Level Percentage` is
+  // generated by tools/gen_signals.py out of pids.csv row 77 -- bit offset,
+  // length and scale all from a vendor table, none of it ever checked against
+  // this car's tank. The same generator already produced the battery-voltage
+  // entry whose +5.0 offset reads 17.6 V for a real 12.6 V, which is why
+  // Broadcast.cpp hard-codes that one. Drawn anyway, because a tank reading
+  // that is plausibly right beats none -- but do not treat it as measured, and
+  // see "ONE TANK RUN SETTLES THREE OPEN NUMBERS" in CLAUDE.md.
+  W.healthFuel = mkLabel(page, "TANK --", UI_FONT_LABEL, UI_FAINT, UI_PAD - 2, 95);
 
   // Coolant and ambient moved here off DRIVE, which is now a fuel card. They
   // belong together: both are temperatures, neither changes fast enough to be
   // worth a glance while moving, and ambient had been decoded from 0x015 and
   // displayed nowhere at all.
-  buildPair(page, 92, "COOLANT", "AMBIENT", &W.healthCoolant, &W.healthAmbient,
+  buildPair(page, 112, "COOLANT", "AMBIENT", &W.healthCoolant, &W.healthAmbient,
             UI_DEG "C", UI_DEG "C");
 
-  mkRule(page, 150, 0, UI_W);
-  mkCaption(page, "LAMPS", UI_PAD - 2, 156);
+  mkRule(page, 170, 0, UI_W);
+  mkCaption(page, "LAMPS", UI_PAD - 2, 176);
   // MIL is deliberately absent: CCN 213F bit24 reads true in every recorded
   // sample including at speed, so showing it would mean a permanent warning.
   static const char* const kLamps[3] = {"OIL", "ABS", "CHARGE"};
   for (uint8_t i = 0; i < 3; ++i) {
-    lv_obj_t* p = mkOutline(page, static_cast<lv_coord_t>(UI_PAD - 2 + i * 73), 176, 68,
+    lv_obj_t* p = mkOutline(page, static_cast<lv_coord_t>(UI_PAD - 2 + i * 73), 196, 68,
                             26, 0, UI_RULE, 1);
     lv_obj_t* t = mkLabel(p, kLamps[i], UI_FONT_LABEL, UI_FAINT, 0, 0);
     lv_obj_center(t);
   }
 
-  mkRule(page, 214, 0, UI_W);
-  mkCaption(page, "FAULTS", UI_PAD - 2, 220);
-  W.faults = mkLabel(page, "not scanned", UI_FONT_LABEL, UI_DIM, UI_PAD - 2, 238);
-  mkFaultsTap(page, 0, 214, UI_W, 40);
+  mkRule(page, 234, 0, UI_W);
+  mkCaption(page, "FAULTS", UI_PAD - 2, 240);
+  W.faults = mkLabel(page, "not scanned", UI_FONT_LABEL, UI_DIM, UI_PAD - 2, 258);
+  mkFaultsTap(page, 0, 234, UI_W, 40);
 }
 
 // Three regions rather than two: hero and temperatures share the top 156 px in
@@ -1638,8 +2262,19 @@ static void buildHealthLs(lv_obj_t* page) {
   buildHeader(page, "HEALTH", nullptr);
   mkVRule(page, UI_LS_DIV_X, 0, topH);
 
-  mkUnitKey(page, "V", UI_LS_L_R, 5);
-  W.healthVolts = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_LS_PAD - 2, 52);
+  // Hero at the shared height; it sat 28 px lower than DRIVE's for no reason
+  // anyone recorded. "V" is 8 px in the label face, so unlike DRIVE's unit it
+  // has room to spare on the baseline at any value volts can reach.
+  W.healthVolts = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_LS_PAD - 2,
+                          UI_LS_HERO_Y);
+  mkUnit(page, "V", UI_LS_L_R, UI_LS_HERO_UNIT_Y);
+
+  // UI_LS_HERO_SUB_Y, the same derived slot DRIVE and TRIP put their sub-lines
+  // in -- so nothing here is a new number and the three hero pages cannot drift
+  // apart again. The left column had 48 px of nothing between the hero's unit
+  // and the LAMPS rule at 156; this takes 16 of them.
+  W.healthFuel = mkLabel(page, "TANK --", UI_FONT_LABEL, UI_FAINT, UI_LS_PAD,
+                         UI_LS_HERO_SUB_Y);
 
   mkStackRow(page, 0, UI_LS_ROW_H, "COOLANT", &W.healthCoolant, UI_DEG "C");
   mkStackRow(page, 54, UI_LS_ROW_H, "AMBIENT", &W.healthAmbient, UI_DEG "C");
@@ -1689,14 +2324,23 @@ static void buildAccelRows(lv_obj_t* page, lv_coord_t capX, lv_coord_t lastX,
 
 static void buildAccel(lv_obj_t* page) {
   buildHeader(page, "ACCEL", nullptr);
-  mkUnitKey(page, "S", UI_W - (UI_PAD - 2), 5);
+  // No unit key. See buildAccelLs().
   mkRule(page, 24, 0, UI_W);
   buildAccelRows(page, UI_PAD - 2, 108, 174, 32, 52, 64);
 }
 
 static void buildAccelLs(lv_obj_t* page) {
   buildHeader(page, "ACCEL", nullptr);
-  mkUnitKey(page, "S", UI_LS_R_R, 5);
+  // NO UNIT KEY, in either band, and deliberately not moved to a baseline
+  // either -- which is the opposite of what DRIVE and HEALTH just did.
+  //
+  // Those two have ONE hero apiece, so a unit has exactly one number to
+  // qualify and belongs on its baseline. This page is a 3 x 2 table of times:
+  // a single key at the top qualifies none of the six in particular, and six
+  // inline `s` units would be six pieces of furniture repeating one fact. The
+  // row labels already carry it -- `0-60` beside `8.4` is not ambiguous in any
+  // unit but seconds, and setAccelCell() draws a bare `--` when a run never
+  // got there, which a stranded unit would have sat next to looking broken.
   mkRule(page, 22, 0, UI_W);
   buildAccelRows(page, UI_LS_PAD, 150, 240, 30, 50, 54);
 }
@@ -1728,7 +2372,7 @@ static void setAccelCell(lv_obj_t* lbl, uint32_t ms, bool floored) {
 // different things. A module that never answered is not a module with nothing
 // wrong, and the count is only worth reading once every module has been asked.
 static void refreshFaults(void) {
-  if (W.faults == nullptr || s_faults == nullptr) {
+  if (W.faults == nullptr) {
     return;
   }
   char buf[24];
@@ -1770,7 +2414,7 @@ static void refreshFaults(void) {
 
 // The list itself. Cheap enough to run every cycle, and only while it is up.
 static void refreshFaultsPage(void) {
-  if (s_faultPage == nullptr || s_faults == nullptr || !faultPageOpen()) {
+  if (s_faultPage == nullptr || !faultPageOpen()) {
     return;
   }
   char buf[40];
@@ -1849,7 +2493,7 @@ static void refreshFaultsPage(void) {
 // makes MUTE feel immediate: the tap only posts a request to carTask, and this
 // is what notices that gFaults came back changed.
 static void refreshFaultDlg(void) {
-  if (s_faultDlg == nullptr || s_faults == nullptr || W.dlgCode == nullptr) {
+  if (s_faultDlg == nullptr || W.dlgCode == nullptr) {
     return;
   }
   // The fault this dialog is ABOUT, not the row it was opened from. A RE-READ
@@ -1907,7 +2551,7 @@ static void refreshFaultDlg(void) {
 }
 
 static void refreshAccel(void) {
-  if (W.accLast[0] == nullptr || s_accel == nullptr) {
+  if (W.accLast[0] == nullptr) {
     return;
   }
   const AccelRun* last = accelLast(*s_accel);
@@ -1947,7 +2591,11 @@ static const char* const kTripTab[TRIP_COUNT] = {"TRIP A", "TRIP B", "START"};
 // key and landscape only 165, so this is sized by the NARROW band and used
 // unchanged in both -- one row to keep in step instead of two.
 #define UI_TRIP_SEG_W 54
-#define UI_TRIP_SEG_Y 4
+// 5, the same as buildHeader's, so the selector row sits on the very
+// baseline the other two pages' headers do -- the tabs ARE this page's header.
+// Moves the 2 px underline to 24, which the hero clears: its glyphs start at
+// UI_LS_HERO_Y + 9 = 33.
+#define UI_TRIP_SEG_Y 5
 static const lv_coord_t kTripTabUlW[TRIP_COUNT] = {41, 41, 42};
 
 static lv_coord_t tripSegX(uint8_t i) {
@@ -1995,6 +2643,9 @@ static void hideConfirm(void);
 // cannot fire on a swipe that happens to end over the page -- which is the
 // whole reason the gesture is safe to put on a page inside a scroller.
 static void onTripTap(lv_event_t* e) {
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
+  }
   (void)e;
   // A long press ends with a release, and a release sends CLICKED. Without
   // this, letting go of a reset would be read as a fresh tap.
@@ -2061,7 +2712,7 @@ static void showConfirm(void) {
   }
   // What is about to be destroyed, in the units it was read in. A driver who
   // opened this by accident recognises the numbers and cancels.
-  if (W.confirmDetail != nullptr && s_trips != nullptr) {
+  if (W.confirmDetail != nullptr) {
     const Trip& t = s_trips->t[s_tripShown];
     const float km = tripKm(t);
     const float l = tripLitres(t);
@@ -2094,6 +2745,9 @@ static bool confirmOpen(void) { return s_confirmStart != 0u; }
 #define UI_CONFIRM_ARM_MS 400u
 
 static void onConfirmYes(lv_event_t* e) {
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
+  }
   (void)e;
   if (s_confirmStart != 0u && lv_tick_elaps(s_confirmStart) < UI_CONFIRM_ARM_MS) {
     ESP_LOGI(TAG, "confirm: RESET ignored, still arming");
@@ -2111,6 +2765,9 @@ static void onConfirmYes(lv_event_t* e) {
 }
 
 static void onConfirmNo(lv_event_t* e) {
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
+  }
   (void)e;
   ESP_LOGI(TAG, "confirm: CANCEL");
   hideConfirm();
@@ -2133,6 +2790,9 @@ static void onTripLongPress(lv_event_t* e) {
 // A tap on a name selects that meter. One tap, not a cycle: three names are
 // all on screen, so there is nothing to step through.
 static void onTripSegTap(lv_event_t* e) {
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
+  }
   if (s_tripLongFired) {
     s_tripLongFired = false;
     return;
@@ -2210,19 +2870,20 @@ static void buildTripTabs(lv_obj_t* page) {
 // than a word does), and the unit belongs to the number, not to the page.
 // Deleting the row gave the selector the top of the screen and cost nothing.
 //
-// The unit is drawn with mkUnit, not mkUnitKey: font_label_20 exists for unit
-// KEYS parked in a header, and this is no longer one. On the baseline beside a
-// value it is an ordinary inline unit, which is font_label_14 everywhere else
-// on the instrument -- so it takes that face and matches buildPair's units
-// rather than becoming a third size.
+// The unit is drawn with mkUnit, on the baseline beside the value, where it is
+// an ordinary inline unit: font_label_14, the face every other unit on the
+// instrument uses, rather than a third size. TRIP was the first page to do
+// this and for a while the only one -- DRIVE and HEALTH now do it in both
+// bands, and the header-key helper went with the last call site.
 static void buildTrip(lv_obj_t* page) {
   buildTripTabs(page);
 
-  W.tripKm = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_PAD - 4, 30);
-  // Baselines, not boxes: font_digits_64 is line_height 73 / base_line 1, so
-  // its baseline is 72 px down; font_label_14 is 16 / 3, so its own is 13 px
-  // down. 30 + 72 - 13 = 89 puts the two on the same line.
-  mkUnit(page, "KM", UI_W - (UI_PAD - 2), 89);
+  W.tripKm = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_PAD - 4,
+                     UI_TRIP_HERO_Y);
+  // Baselines, not boxes -- through the shared macro now, so the 89 this used
+  // to spell out cannot outlive the hero moving. Still 30 + 72 - 13 = 89; see
+  // UI_HERO_UNIT_Y, which DRIVE and HEALTH go through too.
+  mkUnit(page, "KM", UI_W - (UI_PAD - 2), UI_HERO_UNIT_Y(UI_TRIP_HERO_Y));
 
   // Time is TWO figures, and the pair is the point: IN is the whole window the
   // meter has been running, RIDE only the part spent moving. Either alone
@@ -2231,15 +2892,30 @@ static void buildTrip(lv_obj_t* page) {
   mkHeroSub(page, 106, UI_PAD - 2, UI_W - (UI_PAD - 2), &W.tripElapsed,
             &W.tripMoving);
 
-  buildPair(page, 130, "USED", "AVERAGE", &W.tripUsed, &W.tripL100, "L", "L/100");
-  buildPair(page, 190, "COST", "AVG SPEED", &W.tripCost, &W.tripAvgKph, UI_EUR,
+  // A SECOND sub-line, 18 px under the first -- the same offset DRIVE's third
+  // acceleration figure uses in landscape, so the two pages stack a second line
+  // the same way rather than each inventing a gap.
+  //
+  // It belongs to the meter above it, not to the car: the range is this trip's
+  // average projected over what is in the tank, so switching tabs changes it.
+  // That is why it is here under IN/RIDE and not on HEALTH beside the litres it
+  // is computed from -- HEALTH has no notion of which meter is selected.
+  //
+  // Everything below moved DOWN 18 to pay for it: the pairs 130 -> 148 and
+  // 190 -> 208, the closing rule 250 -> 268. The page dots sit at page-local
+  // 278, so the rule clears them by 10 where it used to clear them by 28.
+  W.tripRange = mkLabel(page, "-- km to empty", UI_FONT_LABEL, UI_FAINT,
+                        UI_PAD - 2, 124);
+
+  buildPair(page, 148, "USED", "AVERAGE", &W.tripUsed, &W.tripL100, "L", "L/100");
+  buildPair(page, 208, "COST", "AVG SPEED", &W.tripCost, &W.tripAvgKph, UI_EUR,
             "km/h");
 
   // Closes the value block. It used to double as the hint row's separator; the
   // hint is gone but the rule is not, or the last pair would sit on an open
   // edge while the first two are boxed. The page dots are at page-local 278,
   // so this is the last thing that fits.
-  mkRule(page, 250, 0, UI_W);
+  mkRule(page, 268, 0, UI_W);
 
   lv_obj_add_event_cb(page, onTripTap, LV_EVENT_CLICKED, nullptr);
   lv_obj_add_event_cb(page, onTripLongPress, LV_EVENT_LONG_PRESSED, nullptr);
@@ -2249,13 +2925,21 @@ static void buildTrip(lv_obj_t* page) {
 // TRIP, turned. Two things here are landscape-specific and both were forced by
 // measurement rather than chosen:
 //
-// "km" MOVES INTO THE HEADER as a right-aligned key, the same move TYRES makes
-// with BAR. The left column's text band is 165 px and "247.8" in
-// font_digits_64 is 164 -- the number alone fills it, so a unit trailing the
-// value would sit on top of the last digit. As a key it costs nothing and is
-// read once rather than every glance. (Above 999.9 km the number itself
-// crosses the column rule. Portrait has the same ceiling one digit further
-// out; neither is fixable without a font this band is not allowed to add.)
+// "KM" sits ON THE HERO'S BASELINE, right-aligned to the column edge -- and
+// this comment used to say the opposite, that it moved into the header "the
+// same move TYRES makes with BAR". Both halves of that are now wrong: the key
+// never moved to the header on this page, and TYRES no longer makes the move
+// at all (its BAR key went into the four cells as "bar"). It also cited a
+// 165 px column, which was UI_LS_RIGHT_W at 130; the shipped band is 187.
+//
+// What the measurement actually says is why the unit cannot TRAIL the value:
+// "247.8" in font_digits_64 is 164 px of a 187 px band, so a unit following
+// the digits would sit on the last one. Right-aligned to the edge it holds
+// still while the number's width changes underneath it, which is the rule
+// DRIVE and HEALTH were both changed to follow. (Above 999.9 km the number
+// itself crosses the column rule. Portrait has the same ceiling one digit
+// further out; neither is fixable without a font this band is not allowed to
+// add.)
 //
 // THE SELECTOR ROW is sized by THIS band, not by portrait's. Three 54 px cells
 // are 162 px of the left column's 165; portrait has 218 px before the KM key
@@ -2269,16 +2953,26 @@ static void buildTripLs(lv_obj_t* page) {
   // No header row here either. The tabs start at the top of the page.
   buildTripTabs(page);
 
-  // Hero and its sub-line are one block, centred in what the header and the
-  // hint row leave: 73 of numeral, 6 of gap, 16 of line = 95 in 172.
-  // The hero block -- 73 of numeral, 6 of gap, 16 of sub-line -- centred in
-  // what the selector row leaves: 30..218.
-  W.tripKm = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_LS_PAD, 76);
-  // 76 + 72 - 13, the same baseline arithmetic as portrait. Right-aligned to
-  // the column edge rather than trailing the digits, so it holds still while
-  // the number's width changes underneath it.
-  mkUnit(page, "KM", UI_LS_L_R, 135);
-  mkHeroSub(page, 155, UI_LS_PAD, UI_LS_L_R, &W.tripElapsed, &W.tripMoving);
+  // The hero block was CENTRED in what the selector row left (30..218), which
+  // is a defensible thing to do on its own and put the numeral 52 px below
+  // DRIVE's. It is TOP-ALIGNED with the others now: three cards on one swipe
+  // axis matter more than one card being balanced in isolation. The air it
+  // used to sit in is now all below it, which is where DRIVE keeps its flow
+  // bar and HEALTH its lamps.
+  W.tripKm = mkLabel(page, "--", UI_FONT_HERO, UI_PRIMARY, UI_LS_PAD,
+                     UI_LS_HERO_Y);
+  // Right-aligned to the column edge rather than trailing the digits, so it
+  // holds still while the number's width changes underneath it. This is the
+  // arrangement the other two pages were changed to match.
+  mkUnit(page, "KM", UI_LS_L_R, UI_LS_HERO_UNIT_Y);
+  mkHeroSub(page, UI_LS_HERO_SUB_Y, UI_LS_PAD, UI_LS_L_R, &W.tripElapsed,
+            &W.tripMoving);
+  // +18, DERIVED like DRIVE's third accel figure rather than typed, so it
+  // cannot overlap the sub-line the next time UI_LS_HERO_SUB_Y moves -- which
+  // is exactly what happened to DRIVE's when that went 103 -> 108. The left
+  // column has ~76 px of nothing below this, so nothing had to move.
+  W.tripRange = mkLabel(page, "-- km to empty", UI_FONT_LABEL, UI_FAINT,
+                        UI_LS_PAD, UI_LS_HERO_SUB_Y + 18);
 
   mkStackRow(page, 0, UI_LS_ROW_H, "USED", &W.tripUsed, "L");
   mkStackRow(page, 54, UI_LS_ROW_H, "AVERAGE", &W.tripL100, "L/100");
@@ -2358,13 +3052,10 @@ static void buildFaultsPage(lv_obj_t* root) {
   // there is no scroll to be elastic ABOUT. Five faults at 40 px is 200 px of
   // portrait's 206, which is exactly that case.
   //
-  // So the gesture is answered by NOT acting on it (see UI_FAULT_TAP_SLOP),
   // and the question a driver would scroll to answer -- is there more below? --
   // is answered by the header count and by the scrollbar, which appears only
   // when there is somewhere to go.
   // PRESSED as well as CLICKED: the pair is what tells a tap from a drag on a
-  // list that may have nothing to scroll -- see UI_FAULT_TAP_SLOP.
-  lv_obj_add_event_cb(list, onFaultRowPress, LV_EVENT_PRESSED, nullptr);
   lv_obj_add_event_cb(list, onFaultRowTap, LV_EVENT_CLICKED, nullptr);
 
   for (uint8_t i = 0; i < FAULT_MAX; ++i) {
@@ -2438,38 +3129,52 @@ static void buildFaultsPage(lv_obj_t* root) {
 // ---------------------------------------------------------------------------
 
 static void onFaultDlgClose(lv_event_t* e) {
-  (void)e;
-  if (!faultDlgSettled()) {
-    return;   // the click that opened this dialog, arriving twice
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
   }
+  (void)e;
   faultDlgShow(false, 0u);
 }
 
 static void onFaultDlgMute(lv_event_t* e) {
-  (void)e;
-  if (!faultDlgSettled()) {
-    return;
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
   }
+  (void)e;
   // Posts a request; carTask owns gFaults and the NVS write. The dialog stays
   // OPEN and refreshFaultDlg() flips the button when the change lands, so the
   // driver sees what they did and can undo it with the same button. Nothing
   // here destroys anything, which is why it needs no confirmation -- unlike
   // the TRIP reset two pages over.
-  if (s_faultMute != nullptr && s_faultDlgIdx < FAULT_MAX) {
-    s_faultMute(s_faultDlgIdx);
+  // By (ecu, code), which the dialog is already tracking for exactly this
+  // class of reason -- see uiSetFaultActions().
+  if (s_faultMute != nullptr && s_faultDlgEcu != 0xFFu) {
+    s_faultMute(s_faultDlgEcu, s_faultDlgCode);
   }
 }
 
 static void onFaultDlgClear(lv_event_t* e) {
-  (void)e;
-  if (!faultDlgSettled()) {
-    return;   // and this one would have ARMED an erase on a stray click
+  if (tapIsDrag()) {
+    return;   // a swipe that began here, not a tap
   }
-  if (s_faultClear == nullptr || s_faults == nullptr) {
+  (void)e;
+  if (s_faultClear == nullptr) {
     return;
   }
   if (s_clearSentMs != 0u) {
-    return;   // already asked; the answer is what decides, not another tap
+    // Already asked, and the ANSWER decides -- not another tap. But only
+    // while an answer is still possible: once UI_CLEAR_WAIT_MS has passed the
+    // request is dead and the button says FAILED, and it used to stay dead for
+    // as long as the dialog was open because nothing ever cleared this. A
+    // driver tapping a control that reads FAILED and getting silence is the
+    // third distinct way this page said "taps do not work". Let the wait
+    // lapse and the button arms again.
+    if (lv_tick_elaps(s_clearSentMs) < UI_CLEAR_WAIT_MS) {
+      return;
+    }
+    s_clearSentMs = 0u;
+    s_clearArmMs = 0u;
+    return;   // this tap clears FAILED; the next one arms a fresh attempt
   }
   const uint32_t now = lv_tick_get();
   if (s_clearArmMs == 0u || lv_tick_elaps(s_clearArmMs) > UI_CLEAR_ARM_MS) {
@@ -2511,12 +3216,13 @@ static void buildFaultDlg(void) {
   // underneath, which is the hole that made the TRIP confirm dialog dismiss
   // itself wherever it was touched.
   //
-  // It absorbs and does NOTHING. Tap-outside-to-dismiss was tried and is what
-  // made taps appear to pass through the dialog: the stray second click from
-  // one contact (see UI_DLG_SETTLE_MS) landed on the list the moment the
-  // dialog got out of the way, and opened the next one. The dialog closes from
-  // CLOSE, which is a control the driver can see and aim at -- the same
-  // arrangement the confirm dialog has always had.
+  // It absorbs and does NOTHING. Tap-outside-to-dismiss was tried and made
+  // taps appear to pass straight through the dialog: the driver dropped a
+  // chopped contact's stray second click onto the list the moment the dialog
+  // got out of the way, opening the next fault. The chopping is fixed at
+  // source now (Touch.cpp), but the arrangement stays because it is the better
+  // one regardless -- the dialog closes from CLOSE, a control the driver can
+  // see and aim at, which is what the confirm dialog has always done.
   s_faultDlg = lv_obj_create(s_faultPage);
   stripChrome(s_faultDlg);
   lv_obj_set_size(s_faultDlg, UI_W, UI_PAGE_H);
@@ -2578,15 +3284,11 @@ static void faultDlgShow(bool open, uint8_t index) {
       lv_obj_delete(s_faultDlg);
       // The list is about to be tappable again, under a finger that may still
       // be producing clicks from the contact that closed this.
-      s_faultDlgClosedMs = lv_tick_get();
-      if (s_faultDlgClosedMs == 0u) {
-        s_faultDlgClosedMs = 1u;
-      }
     }
     faultDlgForget();
     return;
   }
-  if (s_faultPage == nullptr || s_faults == nullptr || index >= s_faults->count) {
+  if (s_faultPage == nullptr || index >= s_faults->count) {
     return;
   }
   if (s_faultDlg != nullptr) {     // re-opened on another row without closing
@@ -2601,10 +3303,6 @@ static void faultDlgShow(bool open, uint8_t index) {
   s_clearArmMs = 0u;
   s_clearSentMs = 0u;
   buildFaultDlg();
-  s_faultDlgOpenMs = lv_tick_get();
-  if (s_faultDlgOpenMs == 0u) {
-    s_faultDlgOpenMs = 1u;      // 0 is the "no dialog" sentinel
-  }
   // Filled before the first frame it appears in, rather than showing a card of
   // empty labels until the next refresh tick.
   refreshFaultDlg();
@@ -2822,98 +3520,43 @@ static void setColourIfChanged(lv_obj_t* lbl, lv_color_t c) {
   lv_obj_set_style_text_color(lbl, c, 0);
 }
 
-// Modules answer 0xFF / 0xFFFF for "signal not available" -- the engine-off
-// value for speed and RPM. Scaled, 0xFFFF/128 becomes a perfectly plausible
-// 512 km/h, which is exactly the kind of number that gets believed. Treat an
-// all-ones raw as no reading at all.
-static bool rawIsSentinel(uint32_t raw, uint8_t bitLength) {
-  if (bitLength == 0u || bitLength >= 32u) {
-    return false;
-  }
-  return raw == ((1u << bitLength) - 1u);
-}
-
-static bool slotUsable(int8_t slot) {
-  if (slot < 0 || s_state == nullptr) {
-    return false;
-  }
-  const StateSlot* sl = s_state->slot(slot);
-  return sl != nullptr && sl->everSet && sl->def != nullptr &&
-         !rawIsSentinel(sl->raw, sl->def->bitLength);
-}
-
-static void setVal(lv_obj_t* lbl, int8_t slot, uint8_t decimals, uint32_t now) {
-  if (lbl == nullptr) {
-    return;
-  }
-  if (!slotUsable(slot)) {
-    setTextIfChanged(lbl, "--");
-    setColourIfChanged(lbl, UI_FAINT);
-    return;
-  }
-  char buf[16];
-  snprintf(buf, sizeof(buf), "%.*f", static_cast<int>(decimals),
-           static_cast<double>(s_state->slot(slot)->value));
-  setTextIfChanged(lbl, buf);
-  // HOLD, then DIM. A value that stops arriving keeps its last reading rather
-  // than blanking -- a gap in a 5 s poll cycle is normal and blinking dashes
-  // would be worse than useless. But it goes dim once it is older than the TTL,
-  // so a held number never passes for a live one.
-  setColourIfChanged(lbl, s_state->fresh(slot, now) ? UI_PRIMARY : UI_DIM);
-}
-
-// As setVal, but scales on the way out. The published value stays the value the
-// bus sent; only the presentation converts.
+// Render one resolved value.
 //
-// `ttlMs` exists because the default 5 s is a property of the DEFAULT poll
-// rate, not of every signal. A value polled every 30 s judged against a 5 s TTL
-// is marked stale five sixths of the time, and a reading as fresh as its poll
-// rate allows is not a stale reading -- it just makes the dimming meaningless.
+// All of the judgement has already happened in core/Snapshot.cpp -- the
+// sentinel test, the TTL, the choice between the broadcast and the polled copy
+// -- so the only thing left here is which of three appearances to wear. That
+// division is the whole point of the snapshot: this function cannot disagree
+// with another page about what "stale" means, because it is not the one
+// deciding.
+//
+// ABSENT -> dashes, in UI_FAINT. The module said it has no value, so there is
+//   nothing to show and pretending otherwise is the failure this instrument is
+//   built to avoid.
+// HELD   -> the number, dimmed. A gap in a poll cycle is normal and blinking
+//   dashes would be worse than useless, but a held reading must never be the
+//   most confident thing on the panel.
+// FRESH  -> the number, plainly.
 //
 // `live` and `stale` are passed as a pair so a row that is deliberately
 // secondary can stay secondary AND still visibly dim: one colour alone would
 // make the two states identical on any row that is not primary to begin with.
-static void setValScaled(lv_obj_t* lbl, int8_t slot, uint8_t decimals, uint32_t now,
-                         float scale, uint32_t ttlMs = VS_DEFAULT_TTL_MS,
-                         lv_color_t live = UI_PRIMARY, lv_color_t stale = UI_DIM) {
+static void setSnap(lv_obj_t* lbl, const SnapVal& v, uint8_t decimals,
+                    lv_color_t live = UI_PRIMARY, lv_color_t stale = UI_DIM) {
   if (lbl == nullptr) {
     return;
   }
-  if (!slotUsable(slot)) {
+  if (!snapShow(v)) {
     setTextIfChanged(lbl, "--");
     setColourIfChanged(lbl, UI_FAINT);
     return;
   }
   char buf[16];
   snprintf(buf, sizeof(buf), "%.*f", static_cast<int>(decimals),
-           static_cast<double>(s_state->slot(slot)->value * scale));
+           static_cast<double>(v.v));
   setTextIfChanged(lbl, buf);
-  setColourIfChanged(lbl, s_state->fresh(slot, now, ttlMs) ? live : stale);
+  setColourIfChanged(lbl, snapLive(v) ? live : stale);
 }
 
-// A value that came off the bus rather than out of a request. Same hold-and-dim
-// contract as setVal: keep the last reading, dim it once it is stale.
-static void setBcast(lv_obj_t* lbl, float value, uint32_t stampMs, uint8_t decimals,
-                     uint32_t now) {
-  if (lbl == nullptr) {
-    return;
-  }
-  if (stampMs == 0u) {
-    setTextIfChanged(lbl, "--");
-    setColourIfChanged(lbl, UI_FAINT);
-    return;
-  }
-  char buf[16];
-  snprintf(buf, sizeof(buf), "%.*f", static_cast<int>(decimals),
-           static_cast<double>(value));
-  setTextIfChanged(lbl, buf);
-  setColourIfChanged(lbl, ((now - stampMs) < VS_DEFAULT_TTL_MS) ? UI_PRIMARY : UI_DIM);
-}
-
-// A derived figure that is not always computable. The trip readouts return a
-// negative when there is not yet enough to say -- no odometer anchor, no fuel
-// integrated, under 100 m covered -- and that is a different thing from zero.
-// "0.0 L/100" on a car that has not moved is a lie; a dash is not.
 static void setOptional(lv_obj_t* lbl, float value, uint8_t decimals) {
   if (lbl == nullptr) {
     return;
@@ -2933,6 +3576,75 @@ static void setOptional(lv_obj_t* lbl, float value, uint8_t decimals) {
 // A hero sub-line figure: a word, a number and sometimes a unit, in ONE label.
 // One label rather than three because the number's width changes and separate
 // neighbours would shuffle sideways every time it did.
+// A SnapVal on a hero sub-line.
+//
+// setSubValue() below has TWO states and that is right for what sits beside it:
+// the trip figures are derived from meters we own, so they either exist or they
+// do not. A POLLED reading has three, and the middle one is the whole point of
+// the snapshot -- a tank percentage one poll old is still worth showing and
+// must still not pass for a live one.
+//
+// The colours step DOWN through the palette rather than reusing setSnap()'s
+// UI_PRIMARY/UI_DIM pair, for the reason setSnap() states about secondary rows:
+// this line is already subordinate to the hero above it, so live has to be
+// UI_DIM, and a held value needs its own rung BELOW that or held and absent
+// would be the same grey -- on the one readout where "slightly old" is the
+// interesting answer.
+//
+// No space before the unit: "62%" is how a percentage is written, and the
+// trailing-space form setSubValue() uses is for units like "km" that are words.
+static void setSubSnap(lv_obj_t* lbl, const char* prefix, const SnapVal& v,
+                       uint8_t decimals, const char* unit) {
+  if (lbl == nullptr) {
+    return;
+  }
+  char buf[28];
+  if (!snapShow(v)) {
+    snprintf(buf, sizeof(buf), "%s--", prefix);
+    setTextIfChanged(lbl, buf);
+    setColourIfChanged(lbl, UI_FAINT);
+    return;
+  }
+  snprintf(buf, sizeof(buf), "%s%.*f%s", prefix, static_cast<int>(decimals),
+           static_cast<double>(v.v), unit);
+  setTextIfChanged(lbl, buf);
+  setColourIfChanged(lbl, snapLive(v) ? UI_DIM : UI_LABEL);
+}
+
+// A sub-line whose LABEL TRAILS the number: "233 km to empty".
+//
+// setSubValue() puts its word in front ("IN 24:15", "RIDE 18:02") because those
+// name WHICH figure follows. This one reads as a sentence instead -- the number
+// is the subject and the rest qualifies it -- which is how a driver says it out
+// loud, and it puts the digits at the left edge where the eye already is for
+// every other value on the page.
+//
+// Lower case deliberately, and it does not break the caption convention: the
+// captions on this page (IN, RIDE, USED, AVERAGE) are upper case because they
+// are LABELS, while this is a unit and a phrase, and units here have always
+// been lower case -- "km", "km/h", "L/100".
+//
+// The unavailable form keeps the phrase and dashes only the number, unlike
+// setSubValue()'s bare "--": with the label trailing, dropping it would leave a
+// naked "--" that names nothing at all.
+static void setSubSuffix(lv_obj_t* lbl, float value, uint8_t decimals,
+                         const char* suffix) {
+  if (lbl == nullptr) {
+    return;
+  }
+  char buf[32];
+  if (value < 0.0f) {
+    snprintf(buf, sizeof(buf), "-- %s", suffix);
+    setTextIfChanged(lbl, buf);
+    setColourIfChanged(lbl, UI_FAINT);
+    return;
+  }
+  snprintf(buf, sizeof(buf), "%.*f %s", static_cast<int>(decimals),
+           static_cast<double>(value), suffix);
+  setTextIfChanged(lbl, buf);
+  setColourIfChanged(lbl, UI_DIM);
+}
+
 static void setSubValue(lv_obj_t* lbl, const char* prefix, float value,
                         uint8_t decimals, const char* unit) {
   if (lbl == nullptr) {
@@ -2964,7 +3676,7 @@ static void setSubDuration(lv_obj_t* lbl, const char* prefix, uint32_t ms) {
 }
 
 static void refreshTrip(void) {
-  if (s_trips == nullptr || s_tripShown >= TRIP_COUNT) {
+  if (s_tripShown >= TRIP_COUNT) {
     return;
   }
   const Trip& t = s_trips->t[s_tripShown];
@@ -2981,6 +3693,14 @@ static void refreshTrip(void) {
   // spent moving. The gap between them is the traffic.
   setSubDuration(W.tripElapsed, "IN ", t.elapsedMs);
   setSubDuration(W.tripMoving, "RIDE ", t.movingMs);
+  // -1 for an absent tank, which is exactly what tripRangeKm() wants: the
+  // three-state SnapVal collapses to "have it or not" here, because a range
+  // projected from a HELD litre reading is no less true than one projected from
+  // a fresh one -- the tank moves 4 counts in twenty-five minutes.
+  setSubSuffix(W.tripRange,
+               tripRangeKm(t, snapShow(s_snap.fuelLitres) ? s_snap.fuelLitres.v
+                                                          : -1.0f),
+               0, "km to empty");
 }
 
 // The flow bar. Only the segments whose state actually changed are touched --
@@ -2989,10 +3709,10 @@ static void refreshTrip(void) {
 static uint8_t s_flowLit = 0xFFu;
 static bool s_flowCrit = false;
 
-// Which unit the instantaneous readout is currently in. Latched rather than
-// recomputed from speed alone, so the hysteresis band above has something to
-// hold on to. Starts false: a car that has not moved yet is stopped.
-static bool s_flowPerDistance = false;
+// The L/h <-> L/100km latch used to live here, as s_flowPerDistance. It is
+// SnapshotSource::flowPerDistance now: hysteresis is memory by definition, and
+// keeping that memory in core/ is what lets a host test drive a whole
+// approach-crawl-stop sequence and assert the readout does not flicker.
 
 static void setFlow(uint8_t lit, bool crit) {
   if (lit == s_flowLit && crit == s_flowCrit) {
@@ -3049,9 +3769,6 @@ static void setAccelSide(lv_obj_t* lbl, const char* name, uint32_t splitMs,
 // journey. Also keeps the edge-detect that starts the hold timer, so it must
 // be called exactly once per refresh.
 static bool accelWantsSubLine(void) {
-  if (s_accel == nullptr) {
-    return false;
-  }
   // accelLaunched(), not accelRunning(): a run is timed from the last moment
   // the car was known stopped, but it is not SHOWN until the pedal says it was
   // a launch. Otherwise the sub-line flips for every pull-away and flips back
@@ -3075,10 +3792,21 @@ static void refreshDrive(uint32_t now) {
   // The headline is FROM START, not TRIP A: it answers "how is this journey
   // going", which is the question a driver actually has, and it needs no reset
   // to mean that.
-  const float l100 = (s_trips != nullptr) ? tripL100(s_trips->t[TRIP_START]) : -1.0f;
-  setOptional(W.l100, l100, 1);
+  const float l100 = tripL100(s_trips->t[TRIP_START]);
+  // ONE decimal below 100, NONE above it -- a LAYOUT constraint, not a taste,
+  // and the one that lets the unit leave the header.
+  //
+  // "L/100" in the label face is 35 px right-aligned to the column edge, so
+  // its left edge is x=162. The hero starts at x=8, which leaves it 148 px,
+  // and font_digits_64 renders "100.0" in 159. Dropping the tenth at three
+  // integer digits brings it to ~109 and keeps the two apart -- and at
+  // 100 L/100km the tenth is noise, which is why this costs nothing worth
+  // having. Portrait has the room and does not need the rule, but a number
+  // that renders differently depending on which way the bracket faces is
+  // worse than a tenth nobody can use.
+  setOptional(W.l100, l100, (l100 >= 100.0f) ? 0 : 1);
 
-  // Litres rather than percent, and through setValScaled so it keeps the
+  // Litres rather than percent, and through setSnap so it keeps the
   // hold-and-dim contract -- fuel level is polled, so it goes stale like any
   // other requested value and must not pass for live when it does.
   // The hero's sub-line is CONTEXTUAL, and this is the one place on the
@@ -3117,7 +3845,7 @@ static void refreshDrive(uint32_t now) {
     // IN TANK and RANGE were the two cells TRIP A and TRIP B now hold -- the
     // tank percentage is still decoded and still polled, it is simply not
     // drawn any more.
-    const Trip* start = (s_trips != nullptr) ? &s_trips->t[TRIP_START] : nullptr;
+    const Trip* start = &s_trips->t[TRIP_START];
     setSubValue(W.driveDist, "", (start != nullptr) ? tripKm(*start) : -1.0f, 1,
                 "km");
     setSubValue(W.driveCost, "",
@@ -3130,71 +3858,39 @@ static void refreshDrive(uint32_t now) {
   // 1234.5 does not. These are reference copies answering "how far on each
   // meter", and a tenth of a kilometre is not what they are for; dropping it
   // buys a ceiling of 9999 km instead of 999.
-  if (s_trips != nullptr) {
-    setOptional(W.tripADist, tripKm(s_trips->t[TRIP_A]), 0);
-    setOptional(W.tripBDist, tripKm(s_trips->t[TRIP_B]), 0);
-  }
+  setOptional(W.tripADist, tripKm(s_trips->t[TRIP_A]), 0);
+  setOptional(W.tripBDist, tripKm(s_trips->t[TRIP_B]), 0);
 
-  // Both the bar and the number come from the SMOOTHED rate, not from the last
-  // raw frame. Q is a per-stroke control signal and is very spiky; an
-  // unsmoothed readout at 10 Hz is a blur, and an unsmoothed bar is a flicker.
-  const float lph = (s_trips != nullptr) ? tripFlowLph(*s_trips, now) : -1.0f;
-
-  uint8_t lit = 0u;
-  if (lph > 0.0f) {
-    const float f = lph * UI_FLOW_SEGS / UI_FLOW_FULL_LPH + 0.5f;
-    lit = (f >= (float)UI_FLOW_SEGS) ? UI_FLOW_SEGS : (uint8_t)f;
-  }
-  // Computed by the readout below, because the threshold is on the per-distance
-  // figure and only that branch knows it.
-  bool crit = false;
-
+  // The unit switch, its hysteresis, the per-distance arithmetic, the critical
+  // rule and the segment count all happen in core/Snapshot.cpp now. What is
+  // left here is the sentence and the bar, which is the part that is genuinely
+  // about the screen.
   if (W.flowNow != nullptr) {
-    if (lph < 0.0f) {
+    if (!snapShow(s_snap.flow)) {
       setTextIfChanged(W.flowNow, "--");
       setColourIfChanged(W.flowNow, UI_FAINT);
     } else {
-      // Moving, show what the journey is costing per distance; stopped or
-      // crawling, show what the engine is drinking per hour.
-      //
-      // No live speed means L/h as well: without a speed there is no distance
-      // to divide by, and L/h is the one of the two that is still true.
-      const bool speedLive = (s_bcast != nullptr) && (s_bcast->speedMs != 0u) &&
-                             ((now - s_bcast->speedMs) < VS_DEFAULT_TTL_MS);
-      if (!speedLive || s_bcast->speedKph < UI_FLOW_TO_LPH_KPH) {
-        s_flowPerDistance = false;
-      } else if (s_bcast->speedKph >= UI_FLOW_TO_L100_KPH) {
-        s_flowPerDistance = true;
-      }
-
       char buf[20];
-      if (s_flowPerDistance) {
-        const float l100now = lph * 100.0f / s_bcast->speedKph;
-        crit = (l100now > UI_FLOW_CRIT_L100);
-        snprintf(buf, sizeof(buf), "%.1f L/100", static_cast<double>(l100now));
-      } else {
-        snprintf(buf, sizeof(buf), "%.1f L/h", static_cast<double>(lph));
-      }
+      snprintf(buf, sizeof(buf), "%.1f %s", static_cast<double>(s_snap.flow.v),
+               s_snap.flowPerDistance ? "L/100" : "L/h");
       setTextIfChanged(W.flowNow, buf);
-      setColourIfChanged(W.flowNow, crit ? UI_CRIT : UI_PRIMARY);
+      setColourIfChanged(W.flowNow, s_snap.flowCrit ? UI_CRIT : UI_PRIMARY);
     }
   }
-  setFlow(lit, crit);
+  setFlow(s_snap.flowSegs, s_snap.flowCrit);
 }
 
 // The low-pressure line, road wheels only.
-// `now` so a corner's COLOUR can follow the same freshness its value does.
-static void refreshTyreWarning(uint32_t now) {
+// The low-corner TEST is in core/Snapshot.cpp; this draws its answer. No
+// `now` parameter any more -- freshness came with the value, which is the
+// point: the colour and the number can no longer be judged against different
+// instants, and the count at the foot of the page cannot disagree with the
+// corners above it.
+static void refreshTyreWarning(void) {
   if (W.tyreLow == nullptr || W.tyreTarget == nullptr) {
     return;
   }
-  uint8_t low = 0u;
-  for (uint8_t i = 0; i < 4; ++i) {
-    if (slotUsable(s_slot.tyre[i]) &&
-        s_state->slot(s_slot.tyre[i])->value * UI_PSI_TO_BAR < UI_TYRE_LOW_BAR) {
-      ++low;
-    }
-  }
+  const uint8_t low = s_snap.tyreLowCount;
   if (low == 0u) {
     lv_obj_add_flag(W.tyreLow, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(W.tyreTarget, LV_OBJ_FLAG_HIDDEN);
@@ -3213,20 +3909,16 @@ static void refreshTyreWarning(uint32_t now) {
   // cannot afford it. Stale goes to UI_CRIT_DIM: still a warning, visibly not
   // a live one.
   //
-  // ORDERING: this runs after setValScaled() has written every corner's normal
+  // ORDERING: this runs after setSnap() has written every corner's normal
   // colour in refresh(). It only ever paints low corners, so a corner that
   // comes back up is restored by that call, not by this one -- swap the two and
   // a recovered corner stays red for good.
   for (uint8_t i = 0; i < 4; ++i) {
-    if (W.tyre[i] == nullptr || !slotUsable(s_slot.tyre[i])) {
+    if (W.tyre[i] == nullptr || !s_snap.tyreLow[i]) {
       continue;
     }
-    if (s_state->slot(s_slot.tyre[i])->value * UI_PSI_TO_BAR < UI_TYRE_LOW_BAR) {
-      setColourIfChanged(W.tyre[i],
-                         s_state->fresh(s_slot.tyre[i], now, UI_TYRE_TTL_MS)
-                             ? UI_CRIT
-                             : UI_CRIT_DIM);
-    }
+    setColourIfChanged(W.tyre[i],
+                       snapLive(s_snap.tyreBar[i]) ? UI_CRIT : UI_CRIT_DIM);
   }
   char buf[12];
   snprintf(buf, sizeof(buf), "%u LOW", static_cast<unsigned>(low));
@@ -3261,31 +3953,273 @@ static void refreshConfirm(void) {
   }
 }
 
-static void refresh(uint32_t now) {
-  // Broadcast first: 0x002 lands every 50 ms where a poll of the same values
-  // costs a transaction and arrives once or twice a second.
-  if (s_bcast != nullptr) {
-    setBcast(W.speed, s_bcast->speedKph, s_bcast->speedMs, 0, now);
-    setBcast(W.rpm, (float)s_bcast->rpm, s_bcast->rpmMs, 0, now);
-    setBcast(W.healthVolts, s_bcast->volts, s_bcast->voltsMs, 1, now);
-    setBcast(W.healthCoolant, (float)s_bcast->coolantC, s_bcast->coolantMs, 0, now);
-    setBcast(W.healthAmbient, s_bcast->ambientC, s_bcast->ambientMs, 0, now);
-  } else {
-    setVal(W.speed, s_slot.speed, 0, now);
-    setVal(W.rpm, s_slot.rpm, 0, now);
-    setVal(W.healthVolts, s_slot.volts, 1, now);
-    setVal(W.healthCoolant, s_slot.coolant, 0, now);
-    setVal(W.healthAmbient, s_slot.ambient, 0, now);
+// The heading the TAPE is currently drawn at, 0..360, or negative for "nothing
+// shown yet".
+//
+// Negative rather than a companion bool because the FIRST reading must simply
+// appear rather than be glided to: a boot facing east would otherwise spin the
+// tape a quarter turn before settling, which looks like the instrument
+// deciding something rather than reporting it.
+//
+// s_compDrawn is the separate "what is actually on the glass" cache, and it is
+// the same pattern -- and the same obligation -- as s_flowLit: it describes
+// WIDGETS, so buildRoot() has to clear it or a rebuilt tape agrees with a
+// position nothing is drawn at.
+static float s_compShown = -1.0f;
+static float s_compDrawn = -1.0f;
+static bool  s_compLive = false;
+// Whether the tape is currently blanked. Without it the absent branch rewrites
+// the pip's colour and sixteen hidden flags ten times a second for as long as
+// the link is down, which is the whole cost setTextIfChanged() exists to avoid
+// -- and the link being down is exactly when that state lasts.
+static bool  s_compBlank = false;
+
+// All three rows at once -- they are one shape and must never disagree about
+// how fresh the heading is.
+static void setMarkColour(lv_color_t c) {
+  for (uint8_t i = 0; i < UI_COMPASS_MARK_H; ++i) {
+    if (W.compMark[i] != nullptr) {
+      lv_obj_set_style_bg_color(W.compMark[i], c, 0);
+    }
   }
+}
+
+static void refreshCompass(void) {
+  if (W.compMark[0] == nullptr) {
+    return;
+  }
+  const SnapVal& h = s_snap.headingDeg;
+
+  if (!snapShow(h)) {
+    if (s_compBlank) {
+      return;
+    }
+    // The tape goes away ENTIRELY rather than showing a dashed stand-in. Every
+    // other readout here dashes because a number has an obvious empty form; a
+    // compass does not -- there is no version of a picture of a direction that
+    // still reads as "no direction". The pip stays, faint, so the bar does not
+    // look like it lost a widget.
+    for (uint8_t i = 0; i < UI_COMPASS_TICKS; ++i) {
+      lv_obj_add_flag(W.compTick[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    for (uint8_t i = 0; i < UI_COMPASS_NAMES; ++i) {
+      lv_obj_add_flag(W.compName[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    setMarkColour(UI_FAINT);
+    s_compShown = -1.0f;
+    s_compDrawn = -1.0f;
+    s_compBlank = true;
+    return;
+  }
+  s_compBlank = false;
+
+  const float target = compassNorm(h.v);
+  s_compShown = (s_compShown < 0.0f)
+                    ? target
+                    : compassGlide(s_compShown, target, UI_COMPASS_GLIDE);
+
+  const bool live = snapLive(h);
+
+  // 156 px over 90 degrees is 0.58 deg to the pixel, so a change finer than
+  // that cannot move a tick and is not worth the layout work -- this runs at
+  // 10 Hz against a scroll animation competing for the same draw unit, which
+  // is the argument setTextIfChanged() already makes for labels.
+  if (s_compDrawn >= 0.0f && live == s_compLive &&
+      fabsf(compassArc(s_compDrawn, s_compShown)) < 0.3f) {
+    return;
+  }
+  s_compDrawn = s_compShown;
+  s_compLive = live;
+
+  // Hold-and-dim, the same three-state rule as every number on the panel: a
+  // held heading is still worth showing and must still never be the most
+  // confident thing in the bar.
+  setMarkColour(live ? UI_PRIMARY : UI_DIM);
+  const lv_color_t tickC = live ? UI_DOT_OFF : UI_RULE;
+  const lv_color_t nameC = live ? UI_LABEL : UI_FAINT;
+
+  CompassMark marks[COMPASS_MAX_MARKS];
+  const uint8_t n = compassMarks(marks, COMPASS_MAX_MARKS, s_compShown,
+                                 UI_COMPASS_W, UI_COMPASS_SPAN);
+
+  uint8_t ticks = 0;
+  uint8_t names = 0;
+  for (uint8_t i = 0; i < n; ++i) {
+    const lv_coord_t x = static_cast<lv_coord_t>(UI_COMPASS_X + marks[i].x);
+    if (marks[i].major) {
+      if (names >= UI_COMPASS_NAMES) {
+        continue;
+      }
+      lv_obj_t* l = W.compName[names++];
+      // A major mark is a multiple of 45 by construction, so this division is
+      // exact and is the octant index -- no rounding decision to get wrong.
+      setTextIfChanged(l, compassOctantName(
+                              static_cast<uint8_t>(marks[i].deg / 45u)));
+      setColourIfChanged(l, nameC);
+      lv_obj_set_pos(l, static_cast<lv_coord_t>(x - UI_COMPASS_NAME_W / 2),
+                     UI_COMPASS_Y);
+      lv_obj_remove_flag(l, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      if (ticks >= UI_COMPASS_TICKS) {
+        continue;
+      }
+      lv_obj_t* t = W.compTick[ticks++];
+      lv_obj_set_style_bg_color(t, tickC, 0);
+      lv_obj_set_pos(t, x, UI_COMPASS_TICK_Y);
+      lv_obj_remove_flag(t, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  // Whatever the window did not need this frame. The pools are sized for the
+  // worst case, so there is nearly always a spare of each.
+  for (; ticks < UI_COMPASS_TICKS; ++ticks) {
+    lv_obj_add_flag(W.compTick[ticks], LV_OBJ_FLAG_HIDDEN);
+  }
+  for (; names < UI_COMPASS_NAMES; ++names) {
+    lv_obj_add_flag(W.compName[names], LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// The dial's own drawn-position cache, the same obligation s_compDrawn has and
+// for the same reason: it describes WIDGETS, so buildRoot() must clear it.
+static float s_dialDrawn = -1.0f;
+static bool  s_dialLive = false;
+
+static void refreshDial(void) {
+  if (W.dialHeading == nullptr) {
+    return;
+  }
+  const SnapVal& h = s_snap.headingDeg;
+
+  setSnap(W.dialHeading, h, 0);
+  setSnap(W.dialSpeed, s_snap.speedKph, 0);
+  setSnap(W.dialTemp, s_snap.ambientC, 0);
+  if (snapShow(h)) {
+    setTextIfChanged(W.dialOctant, compassOctantName(s_snap.headingOctant));
+    setColourIfChanged(W.dialOctant, snapLive(h) ? UI_PRIMARY : UI_DIM);
+  } else {
+    setTextIfChanged(W.dialOctant, "--");
+    setColourIfChanged(W.dialOctant, UI_FAINT);
+  }
+
+  // The SELECTED meter, so this agrees with whatever TRIP is showing.
+  if (s_tripShown < TRIP_COUNT) {
+    static const char* const kName[TRIP_COUNT] = {"TRIP A", "TRIP B", "FROM START"};
+    setOptional(W.dialTrip, tripKm(s_trips->t[s_tripShown]), 1);
+    if (W.dialTripCap != nullptr) {
+      setTextIfChanged(W.dialTripCap, kName[s_tripShown]);
+    }
+  }
+
+  // ---- the ring, which is the expensive half -----------------------------
+  if (!snapShow(h)) {
+    if (s_dialDrawn < 0.0f) {
+      return;
+    }
+    for (uint8_t i = 0; i < COMPASS_DIAL_MARKS; ++i) {
+      lv_obj_add_flag(W.dialDot[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    for (uint8_t i = 0; i < UI_DIAL_NAMES; ++i) {
+      lv_obj_add_flag(W.dialName[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    for (uint8_t i = 0; i < UI_DIAL_ARROW_ROWS; ++i) {
+      lv_obj_set_style_bg_color(W.dialArrow[i], UI_FAINT, 0);
+    }
+    s_dialDrawn = -1.0f;
+    return;
+  }
+
+  // s_compShown is the GLIDED heading the status-bar tape already maintains --
+  // shared deliberately, so the tape and the dial can never disagree about
+  // which way the truck is pointing, and the easing is computed once.
+  const bool live = snapLive(h);
+  // The near edge of the ring moves 2.49 px per degree, the fastest point on
+  // it, so a tenth of a degree cannot move a pixel anywhere. Below that there
+  // is nothing to redraw, and this page redraws 24 dots when there is.
+  if (s_dialDrawn >= 0.0f && live == s_dialLive &&
+      fabsf(compassArc(s_dialDrawn, s_compShown)) < 0.1f) {
+    return;
+  }
+  s_dialDrawn = s_compShown;
+  s_dialLive = live;
+
+  for (uint8_t i = 0; i < UI_DIAL_ARROW_ROWS; ++i) {
+    lv_obj_set_style_bg_color(W.dialArrow[i], live ? UI_PRIMARY : UI_DIM, 0);
+  }
+
+  CompassDialMark m[COMPASS_DIAL_MARKS];
+  const uint8_t n = compassDial(m, COMPASS_DIAL_MARKS, s_compShown,
+                                UI_DIAL_CX, UI_DIAL_CY, UI_DIAL_RX, UI_DIAL_RY,
+                                UI_DIAL_DOT_MIN, UI_DIAL_DOT_MAX);
+
+  // Depth becomes colour by MIXING, not by picking a palette rung. The ring
+  // needs a continuous ramp -- the eye reads the gradient as distance, and four
+  // discrete steps read as four rings.
+  const lv_color_t nearC = live ? UI_PRIMARY : UI_DIM;
+  uint8_t names = 0;
+  for (uint8_t i = 0; i < n; ++i) {
+    lv_obj_t* d = W.dialDot[i];
+    lv_obj_set_size(d, m[i].size, m[i].size);
+    lv_obj_set_pos(d, static_cast<lv_coord_t>(m[i].x - m[i].size / 2),
+                   static_cast<lv_coord_t>(m[i].y - m[i].size / 2));
+    lv_obj_set_style_bg_color(d, lv_color_mix(UI_DOT_OFF, nearC, m[i].depth), 0);
+    lv_obj_remove_flag(d, LV_OBJ_FLAG_HIDDEN);
+
+    if (m[i].major && names < UI_DIAL_NAMES) {
+      lv_obj_t* l = W.dialName[names++];
+      setTextIfChanged(l, compassOctantName(
+                              static_cast<uint8_t>(m[i].deg / 45u)));
+      setColourIfChanged(l, lv_color_mix(UI_RULE, nearC, m[i].depth));
+      // ABOVE its dot, so a name never sits on the mark it belongs to.
+      lv_obj_set_pos(l, static_cast<lv_coord_t>(m[i].x - UI_DIAL_NAME_W / 2),
+                     static_cast<lv_coord_t>(m[i].y - m[i].size - 17));
+      lv_obj_remove_flag(l, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+  for (uint8_t i = n; i < COMPASS_DIAL_MARKS; ++i) {
+    lv_obj_add_flag(W.dialDot[i], LV_OBJ_FLAG_HIDDEN);
+  }
+  for (; names < UI_DIAL_NAMES; ++names) {
+    lv_obj_add_flag(W.dialName[names], LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+static void refresh(uint32_t now) {
+  // ONE read of the vehicle, at the top, into private memory.
+  //
+  // Everything below draws from that copy and from nothing else, which is what
+  // makes a frame internally consistent: two readouts can no longer be judged
+  // against different instants, and no structure can be re-sorted between the
+  // call that counts its rows and the call that draws them.
+  if (s_readSnap != nullptr) {
+    s_readSnap(s_snap);
+  }
+
+  // The broadcast-beats-polled choice happened in core/Snapshot.cpp; these are
+  // already whichever source won.
+  setSnap(W.speed, s_snap.speedKph, 0);
+  setSnap(W.rpm, s_snap.rpm, 0);
+  setSnap(W.healthVolts, s_snap.volts, 1);
+  setSnap(W.healthCoolant, s_snap.coolantC, 0);
+  setSnap(W.healthAmbient, s_snap.ambientC, 0);
+  // Polled once a pass from the CCN and, until now, resolved into the snapshot
+  // and read by nobody at all.
+  // WHOLE LITRES. The wire value is half-litre counts, so one raw step is
+  // 0.5 L and a tenth would flicker the last digit on a number that cannot be
+  // read that precisely anyway -- the tank moves 4 raw counts across a whole
+  // 25-minute drive, hill included.
+  setSubSnap(W.healthFuel, "TANK ", s_snap.fuelLitres, 0, " L");
+
+  refreshCompass();
+  refreshDial();
   refreshDrive(now);
   refreshTrip();
-  // Both against TTLs matched to their own poll rates -- see UI_TYRE_TTL_MS.
+  // Already psi -> bar, and already judged against the tyres' own TTL rather
+  // than the default -- see UI_TYRE_TTL_MS in core/Snapshot.h.
   for (uint8_t i = 0; i < 4; ++i) {
-    setValScaled(W.tyre[i], s_slot.tyre[i], 2, now, UI_PSI_TO_BAR, UI_TYRE_TTL_MS);
+    setSnap(W.tyre[i], s_snap.tyreBar[i], 2);
   }
-  setValScaled(W.spare, s_slot.spare, 2, now, UI_PSI_TO_BAR, UI_SPARE_TTL_MS, UI_DIM,
-               UI_FAINT);
-  refreshTyreWarning(now);
+  setSnap(W.spare, s_snap.spareBar, 2, UI_DIM, UI_FAINT);
+  refreshTyreWarning();
   refreshFaults();
   refreshFaultsPage();
   refreshFaultDlg();
@@ -3332,6 +4266,69 @@ static void uiTask(void*) {
           uiApplyOrientation(oreq);
         }
       }
+      // External page steps, consumed whole. Ignored while the splash or the
+      // egg owns the screen -- a button press during either would move a
+      // scroller nobody can see, and the driver would come back to a page they
+      // did not choose.
+      const int8_t step = s_pageStep;
+      if (step != 0) {
+        s_pageStep = static_cast<int8_t>(s_pageStep - step);
+        if (s_splashDone && s_eggUntil == 0u) {
+          int16_t want = static_cast<int16_t>(s_current) + step;
+          // CLAMPED, not wrapped. The ends of the swipe axis are landmarks --
+          // DRIVE at one end and SETTINGS at the other, with nothing to
+          // overshoot into -- and a button that wraps from SETTINGS round to
+          // DRIVE destroys that: the driver loses track of which end they are
+          // at, which is the whole reason the order is fixed.
+          if (want < 0) {
+            want = 0;
+          } else if (want >= UI_SCREEN_COUNT) {
+            want = UI_SCREEN_COUNT - 1;
+          }
+          if (want != s_current) {
+            s_current = static_cast<uint8_t>(want);
+            // ANIMATED, deliberately. The same UI_PAGE_ANIM_MS a flick gets, so
+            // a button press and a swipe land the same way -- and the movement
+            // is what tells the driver the press registered at all, on a
+            // control with no travel and no click.
+            lv_obj_scroll_to_x(s_pages, s_current * UI_W, LV_ANIM_ON);
+            setActiveDot(s_current);
+          }
+        }
+      }
+
+      // The easter egg. Started here rather than in the tap handler because it
+      // deletes and rebuilds a screen; ignored while the boot splash is still
+      // up, and while one replay is already running.
+      if (s_eggReq) {
+        s_eggReq = false;
+        if (s_splashDone && s_eggUntil == 0u) {
+          // REBUILT, not merely re-shown. rootTeardown() never touches
+          // s_splash, so the boot-time one still carries the palette AND the
+          // orientation it was built with -- replaying it after a theme swap
+          // or a flip would show the old colours, or the wrong band's layout,
+          // on a screen whose whole job is to look right.
+          if (s_splash != nullptr) {
+            lv_obj_delete(s_splash);
+            s_splash = nullptr;
+          }
+          buildSplash();
+          s_splashT0 = 0u;      // re-latch, so the flash starts from its first pulse
+          s_bulbOn = false;     // a freshly built splash has its bulbs hidden
+          lv_screen_load_anim(s_splash, LV_SCREEN_LOAD_ANIM_FADE_IN, 300, 0, false);
+          s_eggUntil = now + UI_EGG_MS;
+        }
+      }
+      if (s_eggUntil != 0u) {
+        refreshSplash(now);
+        if (static_cast<int32_t>(now - s_eggUntil) >= 0) {
+          lv_screen_load_anim(s_root, LV_SCREEN_LOAD_ANIM_FADE_IN, 300, 0, false);
+          s_eggUntil = 0u;
+        }
+      }
+      if (!s_splashDone) {
+        refreshSplash(now);
+      }
       if (s_splashDone) {
         refresh(now);
         static uint32_t lastDiag = 0u;
@@ -3352,6 +4349,16 @@ static void uiTask(void*) {
         // found a different page waiting. A page only changes when a finger
         // changes it.
       }
+      // THE HEARTBEAT, and it is bumped HERE rather than at the top of the
+      // loop, deliberately. Incrementing before the lock would prove only that
+      // this task is scheduled, which is exactly the thing that stays true when
+      // LVGL is the part that has died. Bumped here it means: the lock was
+      // taken, a whole refresh pass ran under it, and the lock was given back.
+      //
+      // So a permanently held lvgl_port_lock -- a deadlock, which does NOT
+      // starve the idle tasks and which the ESP task watchdog therefore never
+      // sees -- stops this counter, and is caught.
+      ++s_uiBeat;
       lvgl_port_unlock();
     }
 
@@ -3374,7 +4381,52 @@ static void uiTask(void*) {
 // Welcome screen
 // ---------------------------------------------------------------------------
 
-static void buildSplash() {
+// ---- the headlight flash ---------------------------------------------------
+//
+// Two quick pulses then a pause, repeating: the pattern you get when somebody
+// flashes you, rather than a smooth pulse or a blink. All eight bulbs go at
+// once, because a car flashes both sides together.
+//
+// THE WINDOWS ARE MULTIPLES OF THE 100 ms UI TICK, and that is not arbitrary.
+// uiTask samples this at 10 Hz, so anything shorter than a tick can land
+// between two samples and be skipped entirely -- a flash that sometimes does
+// not happen. At 200 ms each ON window is exactly two frames, every time.
+// ONE ring per lamp, four in total. It was two concentric rings each, which at
+// a 14-16px lamp put three circles inside 32px of width and read as a target
+// rather than a headlamp -- the detail was smaller than the thing it was
+// detailing. One ring inside the surround is the whole idea.
+#define UI_SPLASH_BULB_RINGS 1
+#define UI_SPLASH_CYCLE_MS   1200u
+#define UI_SPLASH_ON_MS      200u
+#define UI_SPLASH_GAP_MS     200u
+
+static lv_obj_t* s_bulb[4 * UI_SPLASH_BULB_RINGS];
+
+static void refreshSplash(uint32_t now) {
+  if (s_bulb[0] == nullptr) {
+    return;
+  }
+  if (s_splashT0 == 0u) {
+    s_splashT0 = now;          // first tick after the screen is up
+  }
+  const uint32_t t = (now - s_splashT0) % UI_SPLASH_CYCLE_MS;
+  const bool on = (t < UI_SPLASH_ON_MS) ||
+                  (t >= UI_SPLASH_ON_MS + UI_SPLASH_GAP_MS &&
+                   t < UI_SPLASH_ON_MS * 2u + UI_SPLASH_GAP_MS);
+  if (on == s_bulbOn) {
+    return;
+  }
+  s_bulbOn = on;
+  for (uint8_t i = 0; i < sizeof(s_bulb) / sizeof(s_bulb[0]); ++i) {
+    if (on) {
+      lv_obj_remove_flag(s_bulb[i], LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(s_bulb[i], LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+}
+
+static void buildSplash(void) {
   s_splash = mkScreen();
 
   // The WK's own face: seven short slots in a surround, between twin-circle
@@ -3384,8 +4436,14 @@ static void buildSplash() {
   // centred. It is a logo, not a layout: re-proportioning it would mean a
   // second set of radii and stroke widths to keep in step, for no gain on a
   // screen that is visible for under two seconds.
+  // LIFTED A FIFTH OF THE SCREEN. The mark and the identity block below it were
+  // both sitting low enough that the whole face read as having slid down the
+  // glass. Both move by the SAME amount so their spacing is untouched -- this is
+  // a lift, not a re-layout -- and it is derived from UI_H rather than typed, so
+  // the two bands lift by the same proportion (64 px portrait, 48 landscape).
+  const lv_coord_t lift = static_cast<lv_coord_t>(UI_H / 5);
   const lv_coord_t dx = static_cast<lv_coord_t>((UI_W - 240) / 2);
-  const lv_coord_t cy = s_landscape ? 120 : 143;
+  const lv_coord_t cy = static_cast<lv_coord_t>((s_landscape ? 120 : 143) - lift);
   const lv_coord_t gx = static_cast<lv_coord_t>(dx + 60);
   const lv_coord_t gy = static_cast<lv_coord_t>(cy - 15);
   const lv_coord_t gw = 120;
@@ -3410,38 +4468,96 @@ static void buildSplash() {
     mkOutline(s_splash, static_cast<lv_coord_t>(dx + kLampCx[i] - kLampR[i]),
               static_cast<lv_coord_t>(cy - kLampR[i]), d, d, LV_RADIUS_CIRCLE,
               UI_PRIMARY, 2);
+    // THE BULB: one FILLED disc inside each lamp, hidden until it flashes.
+    //
+    // Filled, not an outline, and the mark is the reason it can be. Everything
+    // else here is drawn in strokes, so a solid disc is the only element with
+    // weight -- which is exactly right for the one thing that is supposed to
+    // read as LIT. An outlined bulb was a third concentric circle inside a
+    // surround that already had two, and it lit up by drawing another line
+    // rather than by going bright.
+    //
+    // 5 px inside the lamp radius leaves a 3 px gap to the surround's inner
+    // edge, so the disc sits INSIDE the lamp instead of becoming it.
+    for (uint8_t k = 0; k < UI_SPLASH_BULB_RINGS; ++k) {
+      const lv_coord_t r = static_cast<lv_coord_t>(kLampR[i] - 5 - k * 4);
+      lv_obj_t* b = lv_obj_create(s_splash);
+      stripChrome(b);
+      lv_obj_set_size(b, static_cast<lv_coord_t>(r * 2),
+                      static_cast<lv_coord_t>(r * 2));
+      lv_obj_set_pos(b, static_cast<lv_coord_t>(dx + kLampCx[i] - r),
+                     static_cast<lv_coord_t>(cy - r));
+      lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+      lv_obj_set_style_bg_color(b, UI_PRIMARY, 0);
+      lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+      lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+      s_bulb[i * UI_SPLASH_BULB_RINGS + k] = b;
+    }
   }
 
   // The identity block hangs off the bottom of the screen rather than off the
   // mark, so it stays at the same distance from the edge in either band.
-  const lv_coord_t idY = s_landscape ? 172 : 250;
+  const lv_coord_t idY = static_cast<lv_coord_t>((s_landscape ? 172 : 250) - lift);
   mkRule(s_splash, idY, (UI_W - 48) / 2, 48);
   lv_obj_t* name = mkLabel(s_splash, "LATONITA-CARPUTER", UI_FONT_LABEL, UI_DIM, 0, 0);
   lv_obj_set_style_text_letter_space(name, 2, 0);
   lv_obj_align(name, LV_ALIGN_TOP_MID, 0, static_cast<lv_coord_t>(idY + 12));
   lv_obj_t* ver = mkLabel(s_splash, "v1.0", UI_FONT_LABEL, UI_FAINT, 0, 0);
   lv_obj_align(ver, LV_ALIGN_TOP_MID, 0, static_cast<lv_coord_t>(idY + 32));
+
+  // (C) 2026 Anton Viktorov -- the quietest line on the screen, one rung
+  // below "v1.0". U+00A9 COPYRIGHT SIGN is NOT in this compiled font:
+  // font_label_14's cmap covers ASCII 32-126 plus exactly two extra
+  // codepoints via a sparse table (U+00B0 degree, U+20AC euro -- see
+  // UI_DEG / UI_EUR above), and U+00A9 falls in neither the ASCII range
+  // nor that two-entry list. Rendering it would draw LVGL's missing-glyph
+  // box on the boot screen, so this spells the ASCII "(C)" instead.
+  // Adding the real glyph means regenerating font_label_14 with an extra
+  // unicode entry (see src/fonts/fonts.h) and is not done here.
+  //
+  // Same face and colour as "v1.0": UI_FAINT is already the dimmest
+  // colour this theme defines, and font_label_14 is the only size a
+  // label can be here, so there is no colour or size left to turn down
+  // further. What sets it apart is what is NOT added: no letter-spacing,
+  // unlike the name line's tracking above, so of the three it carries
+  // the least visual weight by construction rather than by a new knob.
+  lv_obj_t* copyright = mkLabel(s_splash, "(C) 2026 Anton Viktorov", UI_FONT_LABEL, UI_FAINT, 0, 0);
+  lv_obj_align(copyright, LV_ALIGN_TOP_MID, 0, static_cast<lv_coord_t>(idY + 52));
 }
 
-void uiSetBroadcast(const BroadcastState* bcast) {
-  s_bcast = bcast;
+uint32_t uiHeartbeat(void) {
+  return s_uiBeat;
 }
 
-void uiSetAccel(const AccelSet* accel) {
-  s_accel = accel;
+void uiPageStep(int8_t dir) {
+  if (dir == 0) {
+    return;
+  }
+  // Saturating, so a wedged producer cannot overflow the accumulator into the
+  // opposite direction. Two pending steps is already more than a driver means.
+  const int8_t cur = s_pageStep;
+  int16_t next = static_cast<int16_t>(cur) + dir;
+  if (next > 2) {
+    next = 2;
+  } else if (next < -2) {
+    next = -2;
+  }
+  s_pageStep = static_cast<int8_t>(next);
 }
 
-void uiSetFaults(const FaultSet* faults, void (*rescanFn)(void),
-                 void (*muteFn)(uint8_t),
-                 void (*clearFn)(uint8_t, uint16_t)) {
-  s_faults = faults;
+void uiSetSnapshotReader(void (*readFn)(Snapshot& out)) {
+  s_readSnap = readFn;
+}
+
+void uiSetFaultActions(void (*rescanFn)(void),
+                       void (*muteFn)(uint8_t ecu, uint16_t code),
+                       void (*clearFn)(uint8_t ecu, uint16_t code)) {
   s_faultRescan = rescanFn;
   s_faultMute = muteFn;
   s_faultClear = clearFn;
 }
 
-void uiSetTrips(const TripSet* trips, void (*resetFn)(uint8_t)) {
-  s_trips = trips;
+void uiSetTripReset(void (*resetFn)(uint8_t)) {
   s_tripReset = resetFn;
 }
 
@@ -3462,9 +4578,7 @@ void uiLinkReady(bool ok) {
   if (!lvgl_port_lock(200)) {
     return;
   }
-  if (W.linkDot != nullptr) {
-    lv_obj_set_style_bg_color(W.linkDot, linkDotColour(), 0);
-  }
+  setLinkIcon();
   lvgl_port_unlock();
 }
 
@@ -3502,13 +4616,22 @@ static void buildRoot(void) {
   // The bus-rate window is the milder version of the same thing: it would just
   // leave the BUS field blank for a couple of seconds.
   //
-  // The link dot is the third, and it is handled differently -- see s_linkOk.
+  // The link ICON is the third, and it is handled differently -- see s_linkOk.
   // It cannot be cleared here, because the handshake that set it may never
   // happen again while the cable stays plugged in, so the state has to be
   // REPLAYED into the new widget rather than forgotten.
   s_flowLit = 0xFFu;
   s_flowCrit = false;
   s_busLastMs = 0u;
+  // The compass tape is the third of these, and the one that would have been
+  // easiest to miss: s_compDrawn describes tick POSITIONS, so a stale copy
+  // makes the freshly-built tape agree it is already drawn correctly and it
+  // never moves again. s_compShown goes with it so the first reading after a
+  // rebuild appears rather than glides.
+  s_compShown = -1.0f;
+  s_compDrawn = -1.0f;
+  s_compBlank = false;
+  s_dialDrawn = -1.0f;
 
   s_root = mkScreen();
 
@@ -3558,6 +4681,7 @@ static void buildRoot(void) {
   // orientation can be a settings row rather than a second product.
   if (s_landscape) {
     buildTripLs(s_page[UI_TRIP]);
+    buildDialLs(s_page[UI_COMPASS]);
     buildDriveLs(s_page[UI_DRIVE]);
     buildTyresLs(s_page[UI_TYRES]);
     buildHealthLs(s_page[UI_HEALTH]);
@@ -3565,6 +4689,7 @@ static void buildRoot(void) {
     buildSettingsLs(s_page[UI_SETTINGS]);
   } else {
     buildTrip(s_page[UI_TRIP]);
+    buildDial(s_page[UI_COMPASS]);
     buildDrive(s_page[UI_DRIVE]);
     buildTyres(s_page[UI_TYRES]);
     buildHealth(s_page[UI_HEALTH]);
@@ -3697,8 +4822,7 @@ static void uiApplyOrientation(uint8_t orient) {
   rootRebuild(gap, page, trip);
 }
 
-esp_err_t uiInit(VehicleState* state) {
-  s_state = state;
+esp_err_t uiInit(void) {
   memset(&W, 0, sizeof(W));
 
   lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
@@ -3744,32 +4868,6 @@ esp_err_t uiInit(VehicleState* state) {
     return ESP_FAIL;
   }
 
-  // Exact names: VehicleState::indexOfName does not accept the short form.
-  if (state != nullptr) {
-    s_slot.coolant = state->indexOfName("CCN.Engine Coolant Temperature");
-    s_slot.volts = state->indexOfName("CCN.System Voltage");
-    s_slot.speed = state->indexOfName("CCN.Vehicle Speed");
-    s_slot.rpm = state->indexOfName("CCN.Engine Revolutions Per Minute");
-    s_slot.fuel = state->indexOfName("CCN.Fuel Level Percentage");
-    s_slot.ambient = state->indexOfName("CCN.Ambient Temperature");
-    s_slot.tyre[0] = state->indexOfName("WCM.Tyre Sensor 1");
-    s_slot.tyre[1] = state->indexOfName("WCM.Tyre Sensor 2");
-    s_slot.tyre[2] = state->indexOfName("WCM.Tyre Sensor 3");
-    s_slot.tyre[3] = state->indexOfName("WCM.Tyre Sensor 4");
-    s_slot.spare = state->indexOfName("WCM.Tyre Spare");
-  } else {
-    s_slot.coolant = -1;
-    s_slot.volts = -1;
-    s_slot.speed = -1;
-    s_slot.rpm = -1;
-    s_slot.fuel = -1;
-    s_slot.ambient = -1;
-    for (uint8_t i = 0; i < 4; ++i) {
-      s_slot.tyre[i] = -1;
-    }
-    s_slot.spare = -1;
-  }
-
   if (!lvgl_port_lock(0)) {
     return ESP_FAIL;
   }
@@ -3810,6 +4908,20 @@ esp_err_t uiInit(VehicleState* state) {
 
   // Geometry diagnostics: a blank panel and a mislaid layout look identical
   // from the driver's seat, and these three numbers tell them apart.
+  // THE POOL, AT BOOT. It was only ever logged on a rebuild or when the FAULTS
+  // drill-down opened, which is too late to be a warning: by then the tree that
+  // spent it is already built. `largest free` is the number that matters -- a
+  // draw task comes out of this same pool at RENDER time and is what fails
+  // first, silently, in a bare while(1).
+  {
+    lv_mem_monitor_t mm;
+    lv_mem_monitor(&mm);
+    ESP_LOGI(TAG, "boot: lvgl heap %u/%u used  frag %u%%  largest free %u",
+             static_cast<unsigned>(mm.total_size - mm.free_size),
+             static_cast<unsigned>(mm.total_size),
+             static_cast<unsigned>(mm.frag_pct),
+             static_cast<unsigned>(mm.free_biggest_size));
+  }
   ESP_LOGI(TAG, "root %dx%d  scroller %dx%d at y=%d  page0 %dx%d  content_w=%d",
            (int)lv_obj_get_width(s_root), (int)lv_obj_get_height(s_root),
            (int)lv_obj_get_width(s_pages), (int)lv_obj_get_height(s_pages),

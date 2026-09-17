@@ -67,6 +67,78 @@ struct BroadcastState {
   uint16_t flowRaw;
   uint32_t flowMs;
 
+  // ---- Compass, 0x1B4, DLC 6, ~500 ms -------------------------------------
+  //
+  // byte 0 is the module's own 8-way octant enum (0=N, 1=NE, 2=E, 3=SE, 4=S,
+  // 5=SW, 6=W, 7=NW) and byte 1 the magnetic heading at 2 deg/count. MEASURED
+  // over the 2953 frames of the timestamped drive log and cross-checked on an
+  // independent 1584-frame 2019 session: DLC 6 in 2953 of 2953, period mean
+  // 502.8 ms and median 500, 99.83 % of gaps inside 480-520 ms. byte 2 is 0x07
+  // and bytes 3-5 are 0x00 in every frame of both sessions.
+  //
+  // The octant is ROUNDED, not floored. byte 0 agrees with round(byte1*2/45)
+  // mod 8 in 99.46 % of frames where floor binning agrees in only 41.65 %, and
+  // the 16 disagreements are boundary cases inside the +/-1 deg the 2 deg/count
+  // scale allows. byte 1 is OBSERVED 0..178; 179 -- 358 deg, one count short of
+  // north -- is the ASSUMED ceiling and has not been seen.
+  //
+  // THERE IS NO UNAVAILABLE SENTINEL. 0xFF never appears on any of these bytes
+  // in either session, unlike 0x002, 0x014 and 0x1A7. The consequence is worth
+  // stating plainly: headingMs can only ever be zero before the first frame, so
+  // this signal reads ABSENT exactly once, at boot, and is HELD-or-FRESH for
+  // ever after.
+  //
+  // It is also NOT a key-off indicator. 0x1B4 keeps sending a valid, unchanged
+  // heading straight through an ignition-off transition -- ~1000 lines past the
+  // 0x000 flip to 0x01 in scripts/playback.log -- so nothing may gate key-off
+  // on it.
+  //
+  // The heading is bit-for-bit STATIC when the car is stopped: 196 of 196
+  // consecutive stationary sample pairs showed exactly 0.0 deg of delta, no
+  // jitter at all. So an unchanged value is the normal case at a set of lights
+  // and the STAMP is the only thing separating a parked compass from a dead
+  // one.
+  //
+  // ONE STAMP for both values, the dimmerRaw/dimmerByte0 precedent rather than
+  // the rpm/speed one: direction and heading arrive on the SAME frame and
+  // neither can be independently unavailable, so two stamps could only ever
+  // disagree by being wrong. headingStatus is kept for exactly the reason
+  // lightsRaw is kept -- so a wrong guess shows in the log rather than
+  // misbehaving quietly on the glass.
+  // 0x159 byte 5, the tank level as sent. ~1 s period.
+  //
+  // This REPLACED the CCN 0x2103 poll rather than joining it. The old comment
+  // in kPlan said fuel was "not broadcast"; it is, once a second, and the poll
+  // was buying a slower copy of it for a transaction every five seconds.
+  //
+  // THE SCALE IS NOT CALIBRATED. `% = raw/2.55` is the map's working
+  // conversion and nothing has ever checked it against a tank -- but neither
+  // had the poll it replaces, whose x0.5 came out of the same vendor table
+  // that gave the battery voltage a +5.0 offset reading 17.6 V for a real
+  // 12.6 V. So this trades nothing away. See CLAUDE.md, "ONE TANK RUN SETTLES
+  // THREE OPEN NUMBERS".
+  uint8_t  fuelRaw;
+  uint32_t fuelMs;
+
+  // 0x394 byte 3, the RAR head unit's button bitfield, as sent. Bit 2 is
+  // fast-forward and bit 3 rewind; core/Buttons.h turns them into page steps.
+  //
+  // BYTE 3, NOT BYTE 4. The byte map assigns the button bits to b4 and calls b3
+  // constant zero; the owner has it the other way round, and the captures
+  // cannot arbitrate -- both bytes are 0x00 in every frame ever logged.
+  //
+  // Kept RAW and undecoded here on purpose. The byte carries five buttons and
+  // this firmware acts on two of them, so a decode would be throwing away
+  // three bits that cost nothing to keep and that the log then shows if a
+  // mapping ever turns out to be wrong.
+  uint8_t  btnRaw;
+  uint32_t btnMs;
+
+  uint8_t  headingOctant;   // 0x1B4 byte 0, the module's own 8-way enum
+  uint8_t  headingRaw;      // 0x1B4 byte 1, 2 deg/count
+  uint8_t  headingStatus;   // 0x1B4 byte 2; 0x07 in every frame of both captures
+  uint32_t headingMs;
+
   uint32_t frames;          // everything seen, decoded or not
   uint32_t decoded;
 };
@@ -145,7 +217,26 @@ uint16_t broadcastBacklightPermille(uint8_t dimmerRaw, bool haveSignal,
 #define BC_PEDAL_KICKDOWN 0xDFu   // through it; only 0xEA is ever seen above
 #define BC_PEDAL_FLOORED  0xEAu   // the floor, held flat under full throttle
 
-// 0..100. Clamped, because the top anchor comes from one wide-open run in a
-// 2015 capture and this car has never been logged past 0x37 -- a sweep in Park
-// would pin it properly.
+// 0..100, linear between BC_PEDAL_RELEASED and BC_PEDAL_FLOORED, clamped at
+// both ends.
+//
+// BOTH ANCHORS ARE MEASURED, and the correction is worth recording because
+// this comment used to say the opposite. It claimed "this car has never been
+// logged past 0x37 -- a sweep in Park would pin it properly", which described
+// an early probe session and was never revisited once real driving data
+// existed. Re-measured over `scripts/playback.log` (8089 0x2C0 frames, 7624
+// accepted by the three gates below):
+//
+//   * 1631 accepted frames sit ABOVE 0x37, across 69 distinct values.
+//   * The accepted maximum is 0xEA, with 54 frames -- held flat through a
+//     1509 -> 4158 rpm pull, which is what "floored" looks like in the data.
+//   * 0x17 released is the other end, and that one is anchored harder still:
+//     the hardware idle switch agrees in 3767 of 3767 frames.
+//
+// So the range is pinned by the capture, not by a guess, and no sweep in Park
+// is needed. The CLAMP stays, for the reason the wrong comment obscured: the
+// decoder accepts 0xEB..0xFE (only 0xFF is a sentinel), so raws above the
+// floor are representable even though none has been observed on two agreeing
+// tracks. They read 100%, which is the only honest answer -- there is no more
+// pedal.
 uint8_t broadcastPedalPercent(uint8_t raw);

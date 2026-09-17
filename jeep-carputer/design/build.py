@@ -10,8 +10,13 @@ must not shift when the rest of the instrument does.
 import io, json, re
 
 # Swipe order first, then the boards that are not on the swipe axis.
-SCREENS = ["Splash.dc.html", "Main.dc.html", "Trip.dc.html", "Tyres.dc.html", "Health.dc.html",
-           "Settings.dc.html", "ConfirmReset.dc.html", "TyresUnmapped.dc.html", "Faults.dc.html",
+# HEALTH BEFORE TYRES, and COMPASS third -- this list is the SWIPE ORDER and
+# it had drifted from the firmware twice over: Tyres sat ahead of Health long
+# after that was swapped on the owner's instruction, and COMPASS was new.
+# ACCEL is still absent because it has never had a board.
+SCREENS = ["Splash.dc.html", "Main.dc.html", "Trip.dc.html", "Compass.dc.html",
+           "Health.dc.html", "Tyres.dc.html", "Settings.dc.html",
+           "ConfirmReset.dc.html", "TyresUnmapped.dc.html", "Faults.dc.html",
            "Alert.dc.html", "Tilt.dc.html"]
 
 # The landscape band, in the same order. TILT has no landscape board: it is

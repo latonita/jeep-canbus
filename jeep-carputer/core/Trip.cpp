@@ -201,6 +201,20 @@ float tripAvgKph(const Trip& t) {
   return km * 3600000.0f / (float)t.movingMs;
 }
 
+float tripRangeKm(const Trip& t, float litresInTank) {
+  if (litresInTank < 0.0f) {
+    return -1.0f;          // no tank reading; the caller passes -1 for absent
+  }
+  if (tripKm(t) < TRIP_RANGE_MIN_KM) {
+    return -1.0f;          // too little data to project a tankful from
+  }
+  const float l100 = tripL100(t);
+  if (l100 <= 0.0f) {
+    return -1.0f;          // already unavailable, or a meter that burnt nothing
+  }
+  return litresInTank * 100.0f / l100;
+}
+
 float tripCost(const Trip& t, float pricePerLitre) {
   if (pricePerLitre <= 0.0f) {
     return -1.0f;

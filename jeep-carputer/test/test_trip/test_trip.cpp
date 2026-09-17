@@ -21,6 +21,41 @@ static void running(BroadcastState& bc, uint32_t t, uint16_t rpm, uint16_t flow)
   bc.flowMs = t;
 }
 
+// Build a Trip with a known distance and a known litres burnt, via the same
+// odometer + flow-integration path every other trip test here uses -- not by
+// poking the struct directly. Flow is stepped in TRIP_MAX_GAP_MS (2000 ms)
+// chunks at a fixed Q=1600 (10.0 L/h) so every interval integrates in full;
+// callers pick a litres figure that divides evenly by one step's own litres.
+static Trip buildTripKmLitres(float km, float litres) {
+  TripSet s;
+  tripSetInit(s);
+  BroadcastState bc;
+  broadcastClear(bc);
+
+  bc.odometerDm = 1000u;
+  bc.odometerMs = 1u;
+  tripUpdate(s, bc, 1u);
+
+  const uint32_t kStepMs = TRIP_MAX_GAP_MS;
+  const uint16_t kQ = 1600u;
+  const double perStepLitres =
+      (double)kQ * (double)kStepMs / (double)TRIP_FUEL_DIVISOR;
+  const uint32_t steps = (uint32_t)((double)litres / perStepLitres + 0.5);
+
+  uint32_t t = 1u;
+  for (uint32_t i = 0u; i < steps; ++i) {
+    t += kStepMs;
+    running(bc, t, 1500u, kQ);
+    tripUpdate(s, bc, t);
+  }
+
+  bc.odometerDm = 1000u + (uint32_t)(km * 10.0f + 0.5f);
+  bc.odometerMs = t + 1u;
+  tripUpdate(s, bc, t + 1u);
+
+  return s.t[TRIP_A];
+}
+
 TEST_MAIN_BEGIN()
 
   // -------------------------------------------------------------------------
@@ -335,6 +370,113 @@ TEST_MAIN_BEGIN()
     }
     CHECK(tripLitres(s.t[TRIP_A]) > 0.0f);
     CHECK(tripL100(s.t[TRIP_A]) < 0.0f);   // still parked on the same 100 m count
+  }
+
+  // -------------------------------------------------------------------------
+  // tripRangeKm: the worked case a reader checks by hand
+  //
+  // 10.0 L/100 km and 70 L in the tank must give 700 km -- the definition of
+  // L/100 km run backwards.
+  // -------------------------------------------------------------------------
+  {
+    const Trip t10 = buildTripKmLitres(100.0f, 10.0f);
+    CHECK_NEAR(tripL100(t10), 10.0f, 0.01f);
+    CHECK_NEAR(tripRangeKm(t10, 70.0f), 700.0f, 0.5f);
+  }
+
+  // -------------------------------------------------------------------------
+  // Unavailable path 1 of 3: no tank reading
+  //
+  // The caller passes -1.0f for an absent 0x159 reading -- this is the path
+  // the UI actually exercises before the tank has been heard from at all.
+  // -------------------------------------------------------------------------
+  {
+    const Trip t10 = buildTripKmLitres(100.0f, 10.0f);
+    CHECK_NEAR(tripRangeKm(t10, -1.0f), -1.0f, 0.001f);
+  }
+
+  // -------------------------------------------------------------------------
+  // Unavailable path 2 of 3: too little distance to project from, tested on
+  // BOTH sides of the 1.0 km floor
+  //
+  // TRIP_RANGE_MIN_KM is ten times tripL100()'s own floor: this PROJECTS an
+  // average over a whole tankful, so an average taken over a few hundred
+  // metres would be multiplied by thousands.
+  // -------------------------------------------------------------------------
+  {
+    const Trip under = buildTripKmLitres(0.9f, 1.0f);   // 900 m, plenty of fuel
+    CHECK_NEAR(tripRangeKm(under, 70.0f), -1.0f, 0.001f);
+
+    const Trip at = buildTripKmLitres(1.0f, 1.0f);      // exactly the floor
+    CHECK(tripRangeKm(at, 70.0f) >= 0.0f);
+
+    const Trip over = buildTripKmLitres(1.1f, 1.0f);    // just past it
+    CHECK(tripRangeKm(over, 70.0f) >= 0.0f);
+  }
+
+  // -------------------------------------------------------------------------
+  // Unavailable path 3 of 3: no consumption figure to project with
+  //
+  // A trip that covered real distance but never integrated any fuel -- Q held
+  // at zero the whole way, a real overrun reading rather than a missing one --
+  // reads as unavailable too, and tripRangeKm's own l100 <= 0.0f guard must
+  // not divide by it.
+  // -------------------------------------------------------------------------
+  {
+    TripSet s;
+    tripSetInit(s);
+    BroadcastState bc;
+    broadcastClear(bc);
+    bc.odometerDm = 1000u;
+    bc.odometerMs = 1u;
+    tripUpdate(s, bc, 1u);
+    for (uint32_t t = 100u; t <= 10000u; t += 100u) {
+      running(bc, t, 1500u, 0u);
+      tripUpdate(s, bc, t);
+    }
+    bc.odometerDm = 1010u;      // +1.0 km, well past the distance floor
+    bc.odometerMs = 10100u;
+    tripUpdate(s, bc, 10100u);
+
+    CHECK(tripKm(s.t[TRIP_A]) >= TRIP_RANGE_MIN_KM);
+    CHECK(tripL100(s.t[TRIP_A]) < 0.0f);       // burnt nothing reads as unavailable
+    CHECK_NEAR(tripRangeKm(s.t[TRIP_A], 70.0f), -1.0f, 0.001f);
+  }
+
+  // -------------------------------------------------------------------------
+  // Zero litres in the tank is a REAL reading, not an absent one
+  //
+  // An empty tank goes nowhere -- that is a fact, not a missing value, the
+  // same trap as a zero fuel flow on overrun (see Broadcast.h).
+  // -------------------------------------------------------------------------
+  {
+    const Trip t10 = buildTripKmLitres(100.0f, 10.0f);
+    CHECK_NEAR(tripRangeKm(t10, 0.0f), 0.0f, 0.001f);
+  }
+
+  // -------------------------------------------------------------------------
+  // Monotonicity: more fuel goes further; a worse average goes less far
+  // -------------------------------------------------------------------------
+  {
+    const Trip t10 = buildTripKmLitres(100.0f, 10.0f);   // 10.0 L/100 km
+    const Trip t20 = buildTripKmLitres(100.0f, 20.0f);   // 20.0 L/100 km
+
+    CHECK_NEAR(tripRangeKm(t10, 140.0f), 2.0f * tripRangeKm(t10, 70.0f), 0.5f);
+    CHECK(tripRangeKm(t20, 70.0f) < tripRangeKm(t10, 70.0f));
+  }
+
+  // -------------------------------------------------------------------------
+  // Plausibility anchor: the units are litres and km, nothing else
+  //
+  // A full 77.6 L tank at a realistic 10.0 L/100 km projects ~776 km, and at
+  // the capture's measured urban 13.1 L/100 km projects ~592 km.
+  // -------------------------------------------------------------------------
+  {
+    const Trip t10 = buildTripKmLitres(100.0f, 10.0f);
+    const Trip tUrban = buildTripKmLitres(100.0f, 13.1f);
+
+    CHECK_NEAR(tripRangeKm(t10, 77.6f), 776.0f, 0.5f);
+    CHECK_NEAR(tripRangeKm(tUrban, 77.6f), 592.4f, 0.5f);
   }
 
 TEST_MAIN_END()

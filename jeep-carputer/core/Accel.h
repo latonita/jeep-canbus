@@ -96,6 +96,14 @@ struct AccelRun {
   // inside the cut-offs counted without it and was shown as the lesser thing
   // it was -- and that is exactly what made every pull-away from a junction
   // start the stopwatch. A run that never latches this is thrown away.
+  //
+  // ENFORCED, in two places that catch different runs. dropUnlaunched() takes
+  // the timer out of RUNNING once ACCEL_LAUNCH_MS has passed without it; and
+  // finish() -- the ONLY writer of `hist` and `best` -- refuses a run that
+  // lacks it, which is what catches a run that ends INSIDE the window. It was
+  // a comment here and nothing else for a while, and a single corrupt speed
+  // sample was then enough to publish a two-sample 55 ms 0-60 and leave it in
+  // `best` for the rest of the boot, since `best` only ever moves faster.
   bool floored;
 };
 

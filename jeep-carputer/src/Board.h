@@ -95,7 +95,27 @@
 // each one costs a queue round trip plus the synchronous drain that esp_lcd
 // does on every CASET/RASET. Two buffers of 240 x 80 x 2 is 77 KB of internal
 // DMA RAM against ~240 KB free.
-#define LCD_DRAW_ROWS    80
+// 60, NOT 80, AND THE 20 ROWS WENT TO THE LVGL POOL.
+//
+// Two of these are double-buffered at 16 bpp, so the pair costs
+// LCD_H_RES * LCD_DRAW_ROWS * 2 * 2 bytes -- 75 KB at 80 rows, 56 KB at 60 --
+// out of the SAME internal SRAM the LVGL pool is carved from. The two are in
+// direct competition and nothing in the build says so, which is how this was
+// spent twice.
+//
+// It had to move because the seventh page arrived. The widget tree went from
+// 39 KB to 67 KB of a 96 KB pool, leaving ~20 KB free -- and the FAULTS
+// drill-down then builds ~42 more objects on demand and could not get a DRAW
+// TASK on top of them: lv_draw_add_task -> LV_ASSERT_MALLOC -> while(1), a
+// silent freeze with the watchdog naming taskLVGL. Raising the pool to 112 KB
+// alone failed the other way, with esp_lvgl_port refusing buf2 at boot and no
+// display at all. Freeing 18.75 KB here is what lets the pool have its 16.
+//
+// THE COST IS RENDER CHUNKS, NOT QUALITY. A 320 px page is 4 flushes at 80 rows
+// and 6 at 60; measured render is 10-28 ms against a 100 ms budget, so there is
+// room for the extra two. If that stops being true, this is the number to put
+// back -- and then the dial's 24 dots are the next thing to argue about.
+#define LCD_DRAW_ROWS    60
 #define LCD_MAX_TRANSFER_SZ (LCD_H_RES * LCD_DRAW_ROWS * 2)
 // From Waveshare's own init: colour inverted (raw 0x21 INVON),
 // mirror(true, false), no gap, BGR element order.

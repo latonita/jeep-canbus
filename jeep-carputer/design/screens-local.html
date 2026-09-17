@@ -36,7 +36,7 @@
 <h1>Jeep Carputer Screens</h1>
 <p class="sub">True 240&times;320 for the Waveshare ESP32-S3 panel. In swipe order first &mdash; welcome, then the five peers, DRIVE being where the boot settles and SETTINGS last &mdash; then the boards that are not on the swipe axis: the reset dialog, what TYRES looks like today, and three that are designed but not built. Zoom to judge legibility; these are life size.</p>
 <p class="axis">HORIZONTAL AXIS - five peers in order, hard ends, no wrapping: DRIVE, TRIP, TYRES, HEALTH, SETTINGS. This is the only axis a moving driver uses: a thumb flick anywhere on the panel, no aiming.<br><br>One swipe moves at most ONE page, however hard it is thrown. A scroller left to itself predicts where the momentum would carry it and snaps to whatever is nearest, which skips two cards on a brisk flick - fine in a photo gallery, wrong here.<br><br>DRIVE is FIRST and is where the boot settles. An earlier order put it second, so that it was the one card reachable from either direction in one swipe, with TRIP one flick left. That is a real property and it was given up deliberately: the card the driver wants most often should cost ZERO flicks, not one from each side, and a hard end is its own kind of landmark - you cannot overshoot off the front of the list. TRIP moves to one flick right, which is where the second-most-wanted card belongs.<br><br>SETTINGS is last on purpose, and now costs four flicks rather than three: it is the only page read with the truck stopped, so it should be the most expensive and is never landed on by accident.<br><br>There is NO idle timeout. An earlier draft returned to DRIVE after 30s; it was removed. The driver put the screen on TYRES deliberately, looked at the road, and found a different page waiting. A page changes only when a finger changes it.<br><br>The vertical axis (drill-downs) is designed but NOT BUILT. The settings long-press is gone - settings is a page on this axis now.</p>
-<div class="sheet"><figure style="width:240px;"><figcaption>0 / WELCOME</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;">
+<div class="sheet"><figure style="width:240px;"><figcaption>-- / WELCOME  (not on the swipe axis)</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;position:relative;">
 
   <div class="splash-mark" style="display:flex;align-items:center;">
     <svg width="228" height="47" viewBox="0 0 244 50" fill="none">
@@ -64,7 +64,7 @@
     <div style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:13px;letter-spacing:0.1em;color:#21462B;">v1.0</div>
   </div>
 
-</div></div><div class="note"><p>Fades in on ignition, holds, fades out into DRIVE - not into the index-0 card.</p><p>The hold is not decorative. At328Link::begin() drains the ROM bootloader noise off IO43 and handshakes with the 328; the splash is what covers that. Hold until the handshake returns, floor the wait so it never flickers past, and ceiling it so a dead link cannot hang the boot.</p><p>The mark is the WK front end - seven short wide slots in a surround, flanked by lamp clusters. The hood wordmark is deliberately not reproduced.</p></div></figure><figure style="width:240px;"><figcaption>1 / DRIVE - boot lands here</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+</div></div><div class="note"><p>Fades in on ignition, holds, fades out into DRIVE - not into the index-0 card.</p><p>The hold is not decorative. At328Link::begin() drains the ROM bootloader noise off IO43 and handshakes with the 328; the splash is what covers that. Hold until the handshake returns, floor the wait so it never flickers past, and ceiling it so a dead link cannot hang the boot.</p><p>The mark is the WK front end - seven short wide slots in a surround, flanked by lamp clusters. The hood wordmark is deliberately not reproduced.</p></div></figure><figure style="width:240px;"><figcaption>0 / DRIVE - boot lands here</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
 
   <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
     <span style="color:#00DA6B;font-weight:600;">14:22</span>
@@ -149,7 +149,7 @@
     <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
   </div>
 
-</div></div><div class="note"><p>The big number is the FROM START average, not instant. It needs no reset to mean how is this journey going, which is the question a driver actually has.</p><p>FLOW is 0x1A7, which carries instantaneous flow directly: L/h = Q/160. Full scale on the bar is 50 L/h - an OM642 peaks higher, but idle is under 1 L/h and a cruise about 10, so a bar scaled to the true peak would live in its bottom sixth. It CLAMPS rather than auto-ranging.</p><p>The bar turns CRITICAL above 35 L/100km. That threshold is on the per-distance figure, not on L/h, and it only applies while the readout is actually in L/100 - stopped or crawling there is no distance to divide by, and a stationary engine would otherwise sit permanently in alarm. It is a rate of spending, not a fault: nothing is wrong with the car at 40 L/100km, you are just paying for it, which is exactly the thing a fuel card exists to say.</p><p>The figure beside it switches unit with the car: L/100km while moving, L/h once stopped or crawling - idling in a jam or parked and running, litres per hour is what tells you what the waiting costs. The switch has a hysteresis band (L/h below 2 km/h, L/100 above 3) because a crawling car crosses a single threshold over and over and a readout that flips unit every few seconds cannot be read. Both are smoothed over ~3 s - raw Q is a per-stroke control signal and is very spiky.</p><p>An earlier version read 0x1A7 as injection quantity per stroke, multiplied by rpm, and carried a 3.00x measured correction to make a real drive come out right. All of that is gone: the signal was being modelled wrongly, not measured wrongly.</p><p>IN TANK and RANGE are GONE. They were the CCN fuel percentage against the 78.0 L tank, and the two divided - and the tank reading is still decoded and still polled, it simply is not drawn. What took their cells is TRIP A and TRIP B, so the card answers how far on each meter without a swipe to TRIP and two taps once there.</p><p>The hero now carries a SUB-LINE: this drive's distance and what its fuel cost. Both describe the same window as the big number above them, so the whole top of the card is one journey. That line is what the 66px numeral was already leaving room for - it occupied 73px of a 172px column and the rest was air.</p><p>COOLANT and BATTERY moved to HEALTH. Speed and rpm stay, small - there is a speedometer 30 cm away.</p></div></figure><figure style="width:240px;"><figcaption>2 / TRIP</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+</div></div><div class="note"><p>The big number is the FROM START average, not instant. It needs no reset to mean how is this journey going, which is the question a driver actually has.</p><p>FLOW is 0x1A7, which carries instantaneous flow directly: L/h = Q/160. Full scale on the bar is 50 L/h - an OM642 peaks higher, but idle is under 1 L/h and a cruise about 10, so a bar scaled to the true peak would live in its bottom sixth. It CLAMPS rather than auto-ranging.</p><p>The bar turns CRITICAL above 35 L/100km. That threshold is on the per-distance figure, not on L/h, and it only applies while the readout is actually in L/100 - stopped or crawling there is no distance to divide by, and a stationary engine would otherwise sit permanently in alarm. It is a rate of spending, not a fault: nothing is wrong with the car at 40 L/100km, you are just paying for it, which is exactly the thing a fuel card exists to say.</p><p>The figure beside it switches unit with the car: L/100km while moving, L/h once stopped or crawling - idling in a jam or parked and running, litres per hour is what tells you what the waiting costs. The switch has a hysteresis band (L/h below 2 km/h, L/100 above 3) because a crawling car crosses a single threshold over and over and a readout that flips unit every few seconds cannot be read. Both are smoothed over ~3 s - raw Q is a per-stroke control signal and is very spiky.</p><p>An earlier version read 0x1A7 as injection quantity per stroke, multiplied by rpm, and carried a 3.00x measured correction to make a real drive come out right. All of that is gone: the signal was being modelled wrongly, not measured wrongly.</p><p>IN TANK and RANGE are GONE. They were the CCN fuel percentage against the 78.0 L tank, and the two divided - and the tank reading is still decoded and still polled, it simply is not drawn. What took their cells is TRIP A and TRIP B, so the card answers how far on each meter without a swipe to TRIP and two taps once there.</p><p>The hero now carries a SUB-LINE: this drive's distance and what its fuel cost. Both describe the same window as the big number above them, so the whole top of the card is one journey. That line is what the 66px numeral was already leaving room for - it occupied 73px of a 172px column and the rest was air.</p><p>COOLANT and BATTERY moved to HEALTH. Speed and rpm stay, small - there is a speedometer 30 cm away.</p></div></figure><figure style="width:240px;"><figcaption>1 / TRIP</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
 
   <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
     <span style="color:#00DA6B;font-weight:600;">14:22</span>
@@ -195,7 +195,84 @@
     <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#00DA6B;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
   </div>
 
-</div></div><div class="note"><p>Three meters behind one card: TRIP A and TRIP B both survive a key cycle in NVS, FROM START clears on every boot. Two resettable meters rather than one because a single meter cannot answer two questions - keep a tank or a month on it and you cannot zero it for a leg; zero it for the leg and the long total is gone. The three names sit in a SELECTOR ROW at the top of the hero - TRIP A, TRIP B, START - and a SINGLE TAP on a name selects it. The active one is lit and underlined, the other two are faint.</p><p>That row replaced a double tap that cycled A -> B -> START and a faint line of text reading DBL SWAP; HOLD RESET. The cycle was wrong in two ways a hint could not fix: it was MODAL, so getting to TRIP B from START meant two taps and knowing which way round the ring ran, and it was INVISIBLE, so the only way to learn the other two meters existed was to read the hint or tap and see what happened. Three names, all present, one lit, is the whole state of the page stated rather than described - and it costs no vertical space, because it took exactly the row the hint was using.</p><p>A LONG PRESS still asks whether to zero the meter on screen. The double tap was protecting against a thumb steadying itself on the panel, but it was guarding the wrong gesture: swapping which meter is displayed is harmless and instantly undone by tapping the one you wanted. The destructive gesture is the reset, and that is guarded by a confirmation, which is a better guard than making the gesture hard to perform.</p><p>Distance is the ODOMETER (0x014) differenced, not integrated speed - 100 m per count, the number the car itself keeps, so it cannot drift and it matches the dash to the last digit. An earlier draft integrated the 0x002 wheel counters; that is gone.</p><p>Fuel is the time integral of 0x1A7, which is already a rate: litres = SUM(Q x dt) / 5.76e8. Time-weighted on every frame, never a sum of samples - 21 to 30 percent of 0x1A7 frames drop and the rate varies per session, so a sum would scale with how much of the bus we happened to catch. An interval longer than 2 s is dropped rather than held.</p><p>COST is those litres at the price set in SETTINGS, and it is the only readout on the instrument whose accuracy is the driver's rather than the bus's. It dashes when the litres do, and when no price has been set.</p><p>TIME IS TWO FIGURES on the hero's SUB-LINE, and the pair is the point: IN is the whole window the meter has been running, RIDE only the part of it spent actually moving. Either alone is misleading - IN counts the hour in a car park, RIDE hides it - and the gap between them is the traffic. Both are small, slow-moving figures read in passing, which is what the sub-line is for: the 66px numeral was leaving 87px of the column empty anyway.</p><p>That is also what freed the cell COST sits in, and why AVG SPEED stayed in the grid rather than joining them - the sub-line has two ends and both are now spoken for. Nothing was dropped to make room.</p></div></figure><figure style="width:240px;"><figcaption>3 / TYRES</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+</div></div><div class="note"><p>Three meters behind one card: TRIP A and TRIP B both survive a key cycle in NVS, FROM START clears on every boot. Two resettable meters rather than one because a single meter cannot answer two questions - keep a tank or a month on it and you cannot zero it for a leg; zero it for the leg and the long total is gone. The three names sit in a SELECTOR ROW at the top of the hero - TRIP A, TRIP B, START - and a SINGLE TAP on a name selects it. The active one is lit and underlined, the other two are faint.</p><p>That row replaced a double tap that cycled A -> B -> START and a faint line of text reading DBL SWAP; HOLD RESET. The cycle was wrong in two ways a hint could not fix: it was MODAL, so getting to TRIP B from START meant two taps and knowing which way round the ring ran, and it was INVISIBLE, so the only way to learn the other two meters existed was to read the hint or tap and see what happened. Three names, all present, one lit, is the whole state of the page stated rather than described - and it costs no vertical space, because it took exactly the row the hint was using.</p><p>A LONG PRESS still asks whether to zero the meter on screen. The double tap was protecting against a thumb steadying itself on the panel, but it was guarding the wrong gesture: swapping which meter is displayed is harmless and instantly undone by tapping the one you wanted. The destructive gesture is the reset, and that is guarded by a confirmation, which is a better guard than making the gesture hard to perform.</p><p>Distance is the ODOMETER (0x014) differenced, not integrated speed - 100 m per count, the number the car itself keeps, so it cannot drift and it matches the dash to the last digit. An earlier draft integrated the 0x002 wheel counters; that is gone.</p><p>Fuel is the time integral of 0x1A7, which is already a rate: litres = SUM(Q x dt) / 5.76e8. Time-weighted on every frame, never a sum of samples - 21 to 30 percent of 0x1A7 frames drop and the rate varies per session, so a sum would scale with how much of the bus we happened to catch. An interval longer than 2 s is dropped rather than held.</p><p>COST is those litres at the price set in SETTINGS, and it is the only readout on the instrument whose accuracy is the driver's rather than the bus's. It dashes when the litres do, and when no price has been set.</p><p>TIME IS TWO FIGURES on the hero's SUB-LINE, and the pair is the point: IN is the whole window the meter has been running, RIDE only the part of it spent actually moving. Either alone is misleading - IN counts the hour in a car park, RIDE hides it - and the gap between them is the traffic. Both are small, slow-moving figures read in passing, which is what the sub-line is for: the 66px numeral was leaving 87px of the column empty anyway.</p><p>That is also what freed the cell COST sits in, and why AVG SPEED stayed in the grid rather than joining them - the sub-line has two ends and both are now spoken for. Nothing was dropped to make room.</p></div></figure><figure style="width:240px;"><figcaption>2 / COMPASS</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;color:#008D43;">
+    <span style="color:#00DA6B;font-weight:600;">14:22</span>
+    <svg width="152" height="16" viewBox="0 0 152 16" font-family="'Barlow Semi Condensed',sans-serif"><rect x="0.0" y="5" width="1" height="5" fill="#173720"/><rect x="15.2" y="5" width="1" height="5" fill="#173720"/><rect x="30.4" y="5" width="1" height="5" fill="#173720"/><rect x="60.8" y="5" width="1" height="5" fill="#173720"/><rect x="76.0" y="5" width="1" height="5" fill="#173720"/><rect x="91.2" y="5" width="1" height="5" fill="#173720"/><rect x="106.4" y="5" width="1" height="5" fill="#173720"/><rect x="136.8" y="5" width="1" height="5" fill="#173720"/><rect x="152.0" y="5" width="1" height="5" fill="#173720"/><text x="45.6" y="12" text-anchor="middle" font-size="11" font-weight="600" fill="#008D43">NW</text><text x="121.6" y="12" text-anchor="middle" font-size="11" font-weight="600" fill="#008D43">N</text><path d="M73.5 0 L78.5 0 L76.0 3 Z" fill="#00DA6B"/></svg>
+    <svg width="11" height="11" viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="4.5" fill="none" stroke="#00DA6B" stroke-width="2"/><rect x="3" y="4.5" width="5" height="2" fill="#00DA6B"/></svg>
+  </div>
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:baseline;padding:0 12px;">
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.22em;color:#00DA6B;">COMPASS</span>
+  </div>
+  <div style="flex-shrink:0;"><svg width="240" height="132" viewBox="0 0 240 132" font-family="'Barlow Semi Condensed',sans-serif"><path d="M115.0 2.0 L125.0 2.0 L120.0 9.0 Z" fill="#00DA6B"/><circle cx="110.6" cy="15.8" r="1.00" fill="#3B2C18"/><circle cx="130.7" cy="15.8" r="1.01" fill="#3B2D18"/><circle cx="90.7" cy="17.7" r="1.05" fill="#413018"/><circle cx="150.6" cy="17.9" r="1.05" fill="#423118"/><circle cx="71.5" cy="21.8" r="1.13" fill="#4E3818"/><circle cx="169.8" cy="22.1" r="1.14" fill="#4F3918"/><circle cx="53.5" cy="28.0" r="1.25" fill="#604318"/><circle cx="187.6" cy="28.5" r="1.26" fill="#614418"/><circle cx="37.6" cy="36.5" r="1.40" fill="#765019"/><circle cx="203.4" cy="37.2" r="1.41" fill="#785119"/><circle cx="24.9" cy="47.3" r="1.56" fill="#8F5F19"/><circle cx="215.8" cy="48.1" r="1.57" fill="#906019"/><circle cx="17.0" cy="60.3" r="1.73" fill="#A96F19"/><circle cx="223.3" cy="61.3" r="1.74" fill="#AA7019"/><circle cx="15.5" cy="75.1" r="1.89" fill="#C17E19"/><circle cx="224.3" cy="76.1" r="1.90" fill="#C37F19"/><circle cx="22.5" cy="90.7" r="2.04" fill="#D88B1A"/><circle cx="216.7" cy="91.8" r="2.05" fill="#D98C1A"/><circle cx="39.4" cy="105.6" r="2.16" fill="#EA961A"/><circle cx="199.1" cy="106.5" r="2.17" fill="#EB971A"/><circle cx="66.0" cy="117.6" r="2.25" fill="#F79E1A"/><circle cx="171.9" cy="118.2" r="2.25" fill="#F89F1A"/><circle cx="100.2" cy="124.4" r="2.29" fill="#FEA21A"/><circle cx="137.4" cy="124.7" r="2.30" fill="#FEA31A"/><text x="110.6" y="11.3" text-anchor="middle" font-size="8.5" font-weight="600" fill="#5B4220">NW</text><text x="169.8" y="17.5" text-anchor="middle" font-size="8.9" font-weight="600" fill="#6B4C1F">N</text><text x="53.5" y="23.3" text-anchor="middle" font-size="9.2" font-weight="600" fill="#7A551F">W</text><text x="215.8" y="43.1" text-anchor="middle" font-size="10.0" font-weight="600" fill="#A26D1D">NE</text><text x="17.0" y="55.1" text-anchor="middle" font-size="10.5" font-weight="600" fill="#B7781D">SW</text><text x="216.7" y="86.2" text-anchor="middle" font-size="11.3" font-weight="600" fill="#DF901B">E</text><text x="39.4" y="99.9" text-anchor="middle" font-size="11.6" font-weight="600" fill="#EE991B">S</text><text x="137.4" y="118.9" text-anchor="middle" font-size="12.0" font-weight="600" fill="#FEA31A">SE</text><text x="120.0" y="66.0" text-anchor="middle" font-size="21" font-weight="600" fill="#00DA6B">NW</text></svg></div>
+  <div style="flex-shrink:0;padding:2px 12px 0;display:flex;align-items:baseline;justify-content:space-between;">
+    <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#00DA6B;">322</span>
+    <span style="font-size:15px;color:#196433;">&#176;</span>
+  </div>
+  <div style="flex-shrink:0;padding:6px 12px 0;display:flex;justify-content:space-between;font-size:12px;color:#008D43;">
+    <span>48 km/h</span><span>A 12.4 km</span><span>21 &#176;C</span>
+  </div>
+  <div style="flex-grow:1;"></div>
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;"><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#00DA6B;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span></div>
+
+</div></div></figure><figure style="width:240px;"><figcaption>3 / HEALTH</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
+    <span style="color:#00DA6B;font-weight:600;">14:22</span>
+    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#00DA6B;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:28px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:0 12px;">
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.22em;color:#00DA6B;">HEALTH</span>
+    <span style="font-size:15px;font-weight:600;letter-spacing:0.16em;color:#196433;">V</span>
+  </div>
+
+  <div style="flex-shrink:0;padding:0 12px 10px;">
+    <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#00DA6B;">14.1</span>
+  </div>
+
+  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #132216;border-bottom:1px solid #132216;">
+    <div style="padding:6px 12px;border-right:1px solid #132216;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">COOLANT</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">89</span>
+        <span style="font-size:11px;color:#196433;">&#176;C</span>
+      </div>
+    </div>
+    <div style="padding:6px 12px;">
+      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">AMBIENT</div>
+      <div style="display:flex;align-items:baseline;gap:3px;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">14</span>
+        <span style="font-size:11px;color:#196433;">&#176;C</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;padding:8px 12px 10px;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#196433;margin-bottom:8px;">LAMPS</div>
+    <div style="display:flex;gap:5px;">
+      <span style="flex:1;height:26px;border:1px solid #132216;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:0.08em;color:#21462B;">OIL</span>
+      <span style="flex:1;height:26px;border:1px solid #132216;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:0.08em;color:#21462B;">ABS</span>
+      <span style="flex:1;height:26px;border:1px solid #132216;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:0.08em;color:#21462B;">CHARGE</span>
+    </div>
+  </div>
+
+  <div style="flex-shrink:0;padding:8px 12px;border-top:1px solid #132216;">
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#196433;">FAULTS</div>
+    <div style="font-size:12px;color:#008D43;margin-top:4px;">not scanned</div>
+  </div>
+
+  <div style="flex-grow:1;"></div>
+
+  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
+    <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#00DA6B;"></span>
+    <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
+  </div>
+
+</div></div><div class="note"><p>COOLANT and AMBIENT live here now, off DRIVE. Both are temperatures, neither changes fast enough to be worth a glance while moving, and ambient had been decoded from 0x015 and displayed nowhere at all.</p><p>MIL is deliberately absent. Its bit reads TRUE in every sample including at speed - either the truck really has a fault or the bit is wrong, and a permanently-lit warning is worse than none.</p><p>The lamp pills are drawn but NOT YET DRIVEN: nothing in the firmware can light them.</p></div></figure><figure style="width:240px;"><figcaption>4 / TYRES</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
 
   <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
     <span style="color:#00DA6B;font-weight:600;">14:22</span>
@@ -258,64 +335,7 @@
     <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
   </div>
 
-</div></div><div class="note"><p>WCM 21 3B, four bytes, 1 psi per bit, displayed in BAR. Polled in the background even when off-screen, so the card opens populated.</p><p>The SPARE is not in 21 3B - it answers 21 24 on its own and is polled far more slowly. It reads about 0.48 bar, which is either a genuinely flat spare or a sensor that was never paired. Worth a cell rather than a footnote.</p><p>The TARGET line appears ONLY when a road wheel is under 2.1 bar. Printed permanently it is reference material the driver has to compare four numbers against; printed on demand it is the answer. The spare is excluded from that test or it would hold the warning on forever.</p><p>Byte-to-corner order is still UNMAPPED. The board below is what ships.</p></div></figure><figure style="width:240px;"><figcaption>4 / HEALTH</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
-
-  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
-    <span style="color:#00DA6B;font-weight:600;">14:22</span>
-    <span style="display:flex;align-items:center;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#00DA6B;display:inline-block;"></span></span>
-  </div>
-
-  <div style="height:28px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:0 12px;">
-    <span style="font-size:11px;font-weight:600;letter-spacing:0.22em;color:#00DA6B;">HEALTH</span>
-    <span style="font-size:15px;font-weight:600;letter-spacing:0.16em;color:#196433;">V</span>
-  </div>
-
-  <div style="flex-shrink:0;padding:0 12px 10px;">
-    <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#00DA6B;">14.1</span>
-  </div>
-
-  <div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));border-top:1px solid #132216;border-bottom:1px solid #132216;">
-    <div style="padding:6px 12px;border-right:1px solid #132216;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">COOLANT</div>
-      <div style="display:flex;align-items:baseline;gap:3px;">
-        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">89</span>
-        <span style="font-size:11px;color:#196433;">&#176;C</span>
-      </div>
-    </div>
-    <div style="padding:6px 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">AMBIENT</div>
-      <div style="display:flex;align-items:baseline;gap:3px;">
-        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">14</span>
-        <span style="font-size:11px;color:#196433;">&#176;C</span>
-      </div>
-    </div>
-  </div>
-
-  <div style="flex-shrink:0;padding:8px 12px 10px;">
-    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#196433;margin-bottom:8px;">LAMPS</div>
-    <div style="display:flex;gap:5px;">
-      <span style="flex:1;height:26px;border:1px solid #132216;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:0.08em;color:#21462B;">OIL</span>
-      <span style="flex:1;height:26px;border:1px solid #132216;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:0.08em;color:#21462B;">ABS</span>
-      <span style="flex:1;height:26px;border:1px solid #132216;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:0.08em;color:#21462B;">CHARGE</span>
-    </div>
-  </div>
-
-  <div style="flex-shrink:0;padding:8px 12px;border-top:1px solid #132216;">
-    <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#196433;">FAULTS</div>
-    <div style="font-size:12px;color:#008D43;margin-top:4px;">not scanned</div>
-  </div>
-
-  <div style="flex-grow:1;"></div>
-
-  <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:7px;">
-    <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
-    <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
-    <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
-    <span style="width:5px;height:5px;border-radius:50%;background:#00DA6B;"></span>
-    <span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span>
-  </div>
-
-</div></div><div class="note"><p>COOLANT and AMBIENT live here now, off DRIVE. Both are temperatures, neither changes fast enough to be worth a glance while moving, and ambient had been decoded from 0x015 and displayed nowhere at all.</p><p>MIL is deliberately absent. Its bit reads TRUE in every sample including at speed - either the truck really has a fault or the bit is wrong, and a permanently-lit warning is worse than none.</p><p>The lamp pills are drawn but NOT YET DRIVEN: nothing in the firmware can light them.</p></div></figure><figure style="width:240px;"><figcaption>5 / SETTINGS</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+</div></div><div class="note"><p>WCM 21 3B, four bytes, 1 psi per bit, displayed in BAR. Polled in the background even when off-screen, so the card opens populated.</p><p>The SPARE is not in 21 3B - it answers 21 24 on its own and is polled far more slowly. It reads about 0.48 bar, which is either a genuinely flat spare or a sensor that was never paired. Worth a cell rather than a footnote.</p><p>The TARGET line appears ONLY when a road wheel is under 2.1 bar. Printed permanently it is reference material the driver has to compare four numbers against; printed on demand it is the answer. The spare is excluded from that test or it would hold the warning on forever.</p><p>Byte-to-corner order is still UNMAPPED. The board below is what ships.</p></div></figure><figure style="width:240px;"><figcaption>6 / SETTINGS  (5 / ACCEL has no board)</figcaption><div class="screen" style="width:240px;height:320px;"><div style="width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
 
   <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
     <span style="color:#00DA6B;font-weight:600;">14:22</span>
@@ -375,7 +395,7 @@
     <span style="width:5px;height:5px;border-radius:50%;background:#00DA6B;"></span>
   </div>
 
-</div></div><div class="note"><p>INVERT COLOURS exists because the panel is not always read in the dark. Accent on black is right at night and at dusk; with the sun square on the glass, black on teal carries further than teal on black, because the lit area is then the larger one. It is one row, not a brightness slider, because a driver reaching for it is squinting already.</p><p>Note for anyone reading the driver: the panel's NORMAL state is esp_lcd_panel_invert_color(true). That is not a typo and it is not the setting - it is what this controller needs to paint correct colours at all. Inverting for sunlight therefore calls it with FALSE. The sense of the flag is backwards from the name of the setting, and a reader who assumes otherwise gets a screen that looks broken on boot.</p><p>The choice persists in NVS. A driver who inverted it for an afternoon of low western sun should not have to find it again after every key cycle; the cost of remembering is one byte, and the cost of forgetting is a setting nobody bothers to use twice.</p><p>FUEL PRICE is the third row, and it is the one control here that is not a cycle. A price is not a small set of choices - it is a number to land on exactly, and cycling from 2.01 to 1.50 would be fifty-one taps. So it gets a minus and a plus: a tap moves a cent, a held press moves five at a time, and the commit to flash waits for the finger to come off rather than writing on every step.</p><p>It defaults to 2.01 EUR. A roughly-right default beats a zero: a zero makes every cost readout dash until someone finds this row, where a plausible number is useful immediately and obviously wrong enough to correct.</p><p>That took the first of the two rows drawn deliberately empty; one remains. They are empty rather than filled with plausible options because a page that invents some to look finished is a page that teaches the driver to distrust it - which is exactly why a real setting was allowed to take one.</p><p>The INFO block is READ-ONLY. LINK is STREAM, ATMA or DOWN; ADAPTER is the 328's reported firmware; BUS is frames per second off the bus, which is the one number that says whether the whole instrument is being fed. All three are diagnostics for the person holding a laptop, not controls - a settings page that can drop the link is a settings page that eventually will, in a car park, at night, with no way back.</p></div></figure><figure style="width:240px;"><figcaption>TRIP / reset confirmation</figcaption><div class="screen" style="width:240px;height:320px;"><div style="position:relative;width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;overflow:hidden;">
+</div></div><div class="note"><p>INVERT COLOURS exists because the panel is not always read in the dark. Accent on black is right at night and at dusk; with the sun square on the glass, black on teal carries further than teal on black, because the lit area is then the larger one. It is one row, not a brightness slider, because a driver reaching for it is squinting already.</p><p>Note for anyone reading the driver: the panel's NORMAL state is esp_lcd_panel_invert_color(true). That is not a typo and it is not the setting - it is what this controller needs to paint correct colours at all. Inverting for sunlight therefore calls it with FALSE. The sense of the flag is backwards from the name of the setting, and a reader who assumes otherwise gets a screen that looks broken on boot.</p><p>The choice persists in NVS. A driver who inverted it for an afternoon of low western sun should not have to find it again after every key cycle; the cost of remembering is one byte, and the cost of forgetting is a setting nobody bothers to use twice.</p><p>FUEL PRICE is the third row, and it is the one control here that is not a cycle. A price is not a small set of choices - it is a number to land on exactly, and cycling from 2.01 to 1.50 would be fifty-one taps. So it gets a minus and a plus: a tap moves a cent, a held press moves five at a time, and the commit to flash waits for the finger to come off rather than writing on every step.</p><p>It defaults to 2.01 EUR. A roughly-right default beats a zero: a zero makes every cost readout dash until someone finds this row, where a plausible number is useful immediately and obviously wrong enough to correct.</p><p>That took the first of the two rows drawn deliberately empty; one remains. They are empty rather than filled with plausible options because a page that invents some to look finished is a page that teaches the driver to distrust it - which is exactly why a real setting was allowed to take one.</p><p>The INFO block is READ-ONLY. LINK is SLCAN, STREAM, ATMA or DOWN - four states and not three, because the first two are not the same instrument: under SLCAN the trip and acceleration figures are timed by the gateway's own clock, and under STREAM by ours. When a figure looks wrong, which of those was in force is the first thing worth knowing, so the row says it rather than leaving it in a log line; ADAPTER is the 328's reported firmware; BUS is frames per second off the bus, which is the one number that says whether the whole instrument is being fed. All three are diagnostics for the person holding a laptop, not controls - a settings page that can drop the link is a settings page that eventually will, in a car park, at night, with no way back.</p></div></figure><figure style="width:240px;"><figcaption>TRIP / reset confirmation</figcaption><div class="screen" style="width:240px;height:320px;"><div style="position:relative;width:240px;height:320px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;overflow:hidden;">
 
   <div style="position:absolute;inset:0;display:flex;flex-direction:column;">
     <div style="height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
@@ -669,8 +689,8 @@
 
 </div></div><div class="note"><p>Built, then taken out. No IMU is wired, so the card could only ever show dashes - and a permanently empty card teaches the driver to swipe past it, which costs a swipe on every card behind it.</p><p>It comes back when there is something to put on it. The design stands: the vehicle tilts against a fixed horizon rather than the reverse, which reads correctly at a glance.</p></div></figure></div>
 <h2>Landscape</h2>
-<p class="axis">LANDSCAPE - 320x240, the same five peers<br><br>Rotation is a SETTINGS row, not a second product. Same pages, same order, same one-flick-one-page rule, same hard ends, same absence of an idle timeout. What changes is which axis is scarce: portrait has 320px of height to spend and only 240 of width, landscape has exactly the reverse, and every difference in this band follows from that one fact.<br><br>THE DOT RAIL MOVES INTO THE STATUS BAR. Portrait can afford a 26px rail of its own along the bottom - that is 8 percent of 320. Landscape cannot: the same 26px is 11 percent of 240, taken off the only axis that is short. The bar is 320px wide and carries three short items, so the dots ride in its true centre and the whole bottom rail goes back to content. Landscape gets 218px of content height rather than 192. The rail is the one piece of chrome that does not survive the rotation unchanged, and it is worth the discontinuity.<br><br>TWO COLUMNS REPLACE A STACK. Portrait puts the hero number on top and the supporting grid beneath it. Landscape puts the hero in a 189px left column and the same values in a 130px right stack, divided by one rule. Nothing is dropped, nothing is added, nothing is reordered - it is the same instrument turned ninety degrees, which is what makes a runtime toggle safe rather than a second design to keep in sync.<br><br>THREE BOARDS DO NOT TAKE THE TWO-COLUMN TREATMENT, and each refused it for a measured reason rather than a taste. TYRES is already a grid and gets a wider one. FAULTS is a list and gets wider rows. SETTINGS was drawn in two columns first and the label would not fit - see its note; that is the one place the rotation made something harder rather than easier.<br><br>NO NEW NUMERALS. Every numeral on every landscape board is 66px or 30px CSS - font_digits_64 and font_digits_30 - and the landscape set generated no new digit face. That was enforced, not lucky: four tyre pressures at hero size want 2x73px of digits plus labels plus chrome, which is 238 of the 218px available, so hero-size tyres were drawn and then thrown out.<br><br>ONE label face was added later, and deliberately: font_label_20, for the hero UNIT KEYS. The boards had always drawn the unit larger than the caption - 13px against 9 - and the firmware had been drawing both in font_label_14, which flattened that and made the unit read as a second caption. The key also had to leave the numeral's side: at 20px an inline L/100 starts where DRIVE's hero ends, so it moved to the top right of the page, where TYRES had already put BAR. Every hero now has the full width of its column, which is what TRIP needed - 247.8 alone is 164px of 165.</p>
-<div class="sheet"><figure style="width:320px;"><figcaption>L0 / WELCOME</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;align-items:center;justify-content:center;position:relative;">
+<p class="axis">LANDSCAPE - 320x240, the same five peers<br><br>Rotation is a SETTINGS row, not a second product. Same pages, same order, same one-flick-one-page rule, same hard ends, same absence of an idle timeout. What changes is which axis is scarce: portrait has 320px of height to spend and only 240 of width, landscape has exactly the reverse, and every difference in this band follows from that one fact.<br><br>THE DOT RAIL MOVES INTO THE STATUS BAR. Portrait can afford a 26px rail of its own along the bottom - that is 8 percent of 320. Landscape cannot: the same 26px is 11 percent of 240, taken off the only axis that is short. The bar is 320px wide and carries three short items, so the dots ride in its true centre and the whole bottom rail goes back to content. Landscape gets 218px of content height rather than 192. The rail is the one piece of chrome that does not survive the rotation unchanged, and it is worth the discontinuity.<br><br>TWO COLUMNS REPLACE A STACK. Portrait puts the hero number on top and the supporting grid beneath it. Landscape puts the hero in a 187px left band and the same values in a 112px right stack, divided by one rule. Those two numbers are not free to move independently: content = band + stack is (320 - 1 - 2*PAD) - PAD, which is 279px at a 10px inset and 271 at 12, whatever the divider does. It was 189/130 at 12px insets, and the stack came down to 112 only once the hero units left the header and wanted room on the numeral's own line - TRIP needs 187 for 247.8 plus KM, the stack needs 92 for 4163 rpm, and 279 covers both where 271 does not. Nothing is dropped, nothing is added, nothing is reordered - it is the same instrument turned ninety degrees, which is what makes a runtime toggle safe rather than a second design to keep in sync.<br><br>THREE BOARDS DO NOT TAKE THE TWO-COLUMN TREATMENT, and each refused it for a measured reason rather than a taste. TYRES is already a grid and gets a wider one. FAULTS is a list and gets wider rows. SETTINGS was drawn in two columns first and the label would not fit - see its note; that is the one place the rotation made something harder rather than easier.<br><br>NO NEW NUMERALS. Every numeral on every landscape board is 66px or 30px CSS - font_digits_64 and font_digits_30 - and the landscape set generated no new digit face. That was enforced, not lucky: four tyre pressures at hero size want 2x73px of digits plus labels plus chrome, which is 238 of the 218px available, so hero-size tyres were drawn and then thrown out.<br><br>THE RIGHT-HAND STACK ROW is one 48px block - a 16px caption line box and a 35px value line box, the value hanging off the CAPTION'S BASELINE at +13 rather than off the bottom of its line box at +16 - centred in whatever height the row is given, because a stack of four 53s and one 56 has to look evenly set. It was 51 in a 53px row, which left the digits 1px off the hairline under them: font_digits_30's base_line is 0, so unlike every other face here its baseline IS the bottom of its line box and it has no descender space to absorb the difference. An all-caps caption never uses font_label_14's 3px of descender, so taking it back costs nothing visible and spends it on the gap that was wrong - 2px above the caption, 3 below the digits. The unit sits on the VALUE'S baseline (+35) too, not 10px above it, which is the same rule the hero units now follow; the stack and the hero used to read as two typographic systems.<br><br>THE Y COORDINATES ON THESE BOARDS ARE THE FIRMWARE'S. THE INK IS NOT. The boards are CSS Barlow Condensed and Barlow's figures are about 0.727em, so font-size:66px draws 48px digits where font_digits_64 draws 64. Every block boundary here is the shipped number - header 5..21, hero line box 24..97, sub-line 108..124, a stack value 15..50 against its rule at 53 - but the glyph inside the hero's 73px band is 16px shorter than the panel's, so it sits high in the band and the 11px sub-line gap reads wider here than it does on glass. Take the y's off these boards. Do not take the optical gaps, and never take a width.<br><br>ONE HERO BLOCK, SHARED BY DRIVE, TRIP AND HEALTH. These three cards had each grown their own hero geometry and ended up at three different heights: the header at y=8 / 5 / 4, the numeral at 24 / 76 / 52, the sub-line at 103 / 155 / none. Flicking between them the whole card jumped, which reads as three designs rather than as one instrument with three cards. They now sit on one set of numbers, and the numbers are DERIVED from the two faces' metrics rather than chosen, which is what stops them drifting again. font_digits_64 is line_height 73 with base_line 1, so its baseline is 72px down and its glyphs span y+9 to y+73; font_label_14 is 16/3, so its own baseline is 13px down. Header at 5, in both bands. HERO_Y = 24. UNIT_Y = HERO_Y + 72 - 13 = 83, which puts a label-face unit's baseline exactly ON the numeral's. SUB_Y = HERO_Y + 73 + 11 = 108. DRIVE's third acceleration figure is SUB_Y + 18 = 126 - one 16px line and 2px of air under the sub-line, derived from it rather than typed, because typing it is what left it overlapping when the sub-line went 103 to 108.<br><br>THE 11 IN SUB_Y IS THE ONE FIGURE HERE THAT IS NOT DERIVED. It was 6, which is portrait's gap, and 6 is too tight in this band: font_digits_64's glyphs reach y+73, the very bottom of its line box, so the measured gap and the SEEN gap are the same number, where a face with descender space to spare would have looked airier at the same figure. It was set by eye against the panel, and it is the only number on this block that was.<br><br>THE HERO'S UNIT CAME BACK DOWN ONTO ITS BASELINE, and the boards lost their font_label_20 keys with it. DRIVE and HEALTH used to park the unit in the header as a 20px key, which was the safe place for it: at 20px an inline L/100 starts where DRIVE's hero ends. TRIP had always drawn KM on the hero's baseline instead, and that is the arrangement that won - right-aligned to the left column's content edge at x=197 so it holds still while the number's width changes underneath it, in font_label_14 (11px on these boards), not font_label_20. That face still exists and is still right for a unit key genuinely parked in a header, which is what ACCEL's S is; a hero's unit belongs to its number.<br><br>IT COULD NOT SIMPLY MOVE THERE, and DRIVE is where that bill came due. L/100 in font_label_14 is 35px right-aligned at x=197, so its left edge is 162; the hero starts at x=8; and font_digits_64 renders 100.0 in 159px. So DRIVE's hero DROPS ITS DECIMAL at three integer digits - 100, not 100.0 - which brings it to about 109 and keeps the two apart, and at 100 L/100km the tenth is noise. A board drawing 100.0 in that hero would be showing something the firmware can no longer produce. These boards show 9.4, which is the ordinary case; the rule is the reason the unit could leave the header at all. HEALTH is safe by accident - V is 8px - and TRIP's KM is 18.6.</p>
+<div class="sheet"><figure style="width:320px;"><figcaption>L-- / WELCOME  (not on the swipe axis)</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;align-items:center;justify-content:center;position:relative;">
 
   <div class="splash-mark" style="display:flex;align-items:center;">
     <svg width="264" height="54" viewBox="0 0 244 50" fill="none">
@@ -697,7 +717,7 @@
     <div style="font-size:14px;font-weight:600;letter-spacing:0.17em;color:#008D43;text-transform:uppercase;">latonita&#8209;carputer</div>
     <div style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:13px;letter-spacing:0.1em;color:#21462B;">v1.0</div>
   </div>
-</div></div></figure><figure style="width:320px;"><figcaption>L1 / DRIVE - boot lands here</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+</div></div></figure><figure style="width:320px;"><figcaption>L0 / DRIVE - boot lands here</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
 
   <div style="height:22px;flex-shrink:0;display:flex;align-items:center;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
     <span style="flex:1 0 0;display:flex;align-items:center;gap:9px;"><span style="color:#00DA6B;font-weight:600;">14:22</span></span>
@@ -706,15 +726,12 @@
   </div>
 
   <div style="flex-grow:1;display:flex;min-height:0;">
-  <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;padding:10px 12px 9px;">
-    <div style="display:flex;align-items:baseline;justify-content:space-between;">
-      <span style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#196433;">FROM START</span>
-      <span style="font-size:15px;font-weight:600;letter-spacing:0.16em;color:#196433;">L/100</span>
+  <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;padding:0 12px 9px;">
+    <div style="height:16px;flex-shrink:0;margin-top:5px;line-height:16px;font-size:10px;font-weight:600;letter-spacing:0.16em;color:#196433;">FROM START</div>
+    <div style="height:73px;flex-shrink:0;margin-top:3px;display:flex;align-items:baseline;justify-content:space-between;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#00DA6B;">9.4</span><span style="font-size:11px;font-weight:600;letter-spacing:0.10em;color:#196433;">L/100</span>
     </div>
-    <div style="margin-top:-3px;">
-      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#00DA6B;">9.4</span>
-    </div>
-    <div style="display:flex;justify-content:space-between;margin-top:4px;">
+    <div style="display:flex;justify-content:space-between;margin-top:11px;line-height:16px;">
       <span style="font-size:11px;letter-spacing:0.04em;color:#008D43;">247.8 km</span><span style="font-size:11px;letter-spacing:0.04em;color:#008D43;">47.24 &#8364;</span>
     </div>
     <div style="flex-grow:1;"></div>
@@ -727,28 +744,28 @@
   <div style="width:1px;flex-shrink:0;background:#132216;"></div>
   <div style="width:112px;flex-shrink:0;display:flex;flex-direction:column;">
     <div style="height:53px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">TRIP A</div>
-      <div style="display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">1204.6</span><span style="font-size:11px;color:#196433;">km</span></div>
+      <div style="height:16px;line-height:16px;font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">TRIP A</div>
+      <div style="height:35px;margin-top:-3px;display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:35px;color:#00DA6B;">1204.6</span><span style="font-size:11px;color:#196433;">km</span></div>
     </div>
   <div style="height:1px;flex-shrink:0;background:#0C1A10;"></div>
     <div style="height:53px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">TRIP B</div>
-      <div style="display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">88.2</span><span style="font-size:11px;color:#196433;">km</span></div>
+      <div style="height:16px;line-height:16px;font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">TRIP B</div>
+      <div style="height:35px;margin-top:-3px;display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:35px;color:#00DA6B;">88.2</span><span style="font-size:11px;color:#196433;">km</span></div>
     </div>
   <div style="height:1px;flex-shrink:0;background:#0C1A10;"></div>
     <div style="height:53px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">SPEED</div>
-      <div style="display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">92</span><span style="font-size:11px;color:#196433;">km/h</span></div>
+      <div style="height:16px;line-height:16px;font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">SPEED</div>
+      <div style="height:35px;margin-top:-3px;display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:35px;color:#00DA6B;">92</span><span style="font-size:11px;color:#196433;">km/h</span></div>
     </div>
   <div style="height:1px;flex-shrink:0;background:#0C1A10;"></div>
     <div style="flex:1 1 0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">ENGINE</div>
-      <div style="display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">1900</span><span style="font-size:11px;color:#196433;">rpm</span></div>
+      <div style="height:16px;line-height:16px;font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">ENGINE</div>
+      <div style="height:35px;margin-top:-3px;display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:35px;color:#00DA6B;">1900</span><span style="font-size:11px;color:#196433;">rpm</span></div>
     </div>
   </div>
   </div>
 
-</div></div></figure><figure style="width:320px;"><figcaption>L2 / TRIP</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+</div></div></figure><figure style="width:320px;"><figcaption>L1 / TRIP</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
 
   <div style="height:22px;flex-shrink:0;display:flex;align-items:center;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
     <span style="flex:1 0 0;display:flex;align-items:center;gap:9px;"><span style="color:#00DA6B;font-weight:600;">14:22</span></span>
@@ -757,96 +774,83 @@
   </div>
 
   <div style="flex-grow:1;display:flex;min-height:0;">
-  <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;">
-    <div style="height:30px;flex-shrink:0;display:flex;align-items:center;padding:0 12px;">
+  <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;padding:0 12px;">
+    <div style="height:16px;flex-shrink:0;margin-top:5px;font-size:11px;line-height:16px;">
       <span style="display:inline-block;width:54px;"><span style="display:inline-block;font-size:11px;font-weight:600;letter-spacing:0.06em;color:#00DA6B;border-bottom:2px solid #00DA6B;padding-bottom:3px;">TRIP A</span></span><span style="display:inline-block;width:54px;"><span style="display:inline-block;font-size:11px;font-weight:600;letter-spacing:0.06em;color:#21462B;">TRIP B</span></span><span style="display:inline-block;width:54px;"><span style="display:inline-block;font-size:11px;font-weight:600;letter-spacing:0.06em;color:#21462B;">START</span></span>
     </div>
-    <div style="flex-grow:1;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#00DA6B;">247.8</span><span style="font-size:11px;font-weight:600;letter-spacing:0.10em;color:#196433;">KM</span></div>
-      <div style="display:flex;justify-content:space-between;margin-top:8px;">
-        <span style="font-size:11px;letter-spacing:0.04em;color:#008D43;">IN 4:15</span><span style="font-size:11px;letter-spacing:0.04em;color:#008D43;">RIDE 3:42</span>
-      </div>
+    <div style="height:73px;flex-shrink:0;margin-top:3px;display:flex;align-items:baseline;justify-content:space-between;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#00DA6B;">247.8</span><span style="font-size:11px;font-weight:600;letter-spacing:0.10em;color:#196433;">KM</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:11px;line-height:16px;">
+      <span style="font-size:11px;letter-spacing:0.04em;color:#008D43;">IN 4:15</span><span style="font-size:11px;letter-spacing:0.04em;color:#008D43;">RIDE 3:42</span>
     </div>
   </div>
   <div style="width:1px;flex-shrink:0;background:#132216;"></div>
   <div style="width:112px;flex-shrink:0;display:flex;flex-direction:column;">
     <div style="height:53px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">USED</div>
-      <div style="display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">23.50</span><span style="font-size:11px;color:#196433;">L</span></div>
+      <div style="height:16px;line-height:16px;font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">USED</div>
+      <div style="height:35px;margin-top:-3px;display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:35px;color:#00DA6B;">23.50</span><span style="font-size:11px;color:#196433;">L</span></div>
     </div>
   <div style="height:1px;flex-shrink:0;background:#0C1A10;"></div>
     <div style="height:53px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">AVERAGE</div>
-      <div style="display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">9.4</span><span style="font-size:11px;color:#196433;">L/100</span></div>
+      <div style="height:16px;line-height:16px;font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">AVERAGE</div>
+      <div style="height:35px;margin-top:-3px;display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:35px;color:#00DA6B;">9.4</span><span style="font-size:11px;color:#196433;">L/100</span></div>
     </div>
   <div style="height:1px;flex-shrink:0;background:#0C1A10;"></div>
     <div style="height:53px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">COST</div>
-      <div style="display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">47.24</span><span style="font-size:11px;color:#196433;">&#8364;</span></div>
+      <div style="height:16px;line-height:16px;font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">COST</div>
+      <div style="height:35px;margin-top:-3px;display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:35px;color:#00DA6B;">47.24</span><span style="font-size:11px;color:#196433;">&#8364;</span></div>
     </div>
   <div style="height:1px;flex-shrink:0;background:#0C1A10;"></div>
     <div style="flex:1 1 0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">AVG SPEED</div>
-      <div style="display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">67</span><span style="font-size:11px;color:#196433;">km/h</span></div>
+      <div style="height:16px;line-height:16px;font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">AVG SPEED</div>
+      <div style="height:35px;margin-top:-3px;display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:35px;color:#00DA6B;">67</span><span style="font-size:11px;color:#196433;">km/h</span></div>
     </div>
   </div>
   </div>
 
-</div></div></figure><figure style="width:320px;"><figcaption>L3 / TYRES</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
-
-  <div style="height:22px;flex-shrink:0;display:flex;align-items:center;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
-    <span style="flex:1 0 0;display:flex;align-items:center;gap:9px;"><span style="color:#00DA6B;font-weight:600;">14:22</span></span>
-    <span style="display:flex;align-items:center;gap:7px;"><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#00DA6B;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span></span>
-    <span style="flex:1 0 0;display:flex;align-items:center;justify-content:flex-end;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#00DA6B;display:inline-block;"></span></span>
+</div></div></figure><figure style="width:320px;"><figcaption>L2 / COMPASS</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+  <div style="height:22px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;color:#008D43;">
+    <span style="color:#00DA6B;font-weight:600;">14:22</span>
+    <svg width="152" height="16" viewBox="0 0 152 16" font-family="'Barlow Semi Condensed',sans-serif"><rect x="0.0" y="5" width="1" height="5" fill="#173720"/><rect x="15.2" y="5" width="1" height="5" fill="#173720"/><rect x="30.4" y="5" width="1" height="5" fill="#173720"/><rect x="60.8" y="5" width="1" height="5" fill="#173720"/><rect x="76.0" y="5" width="1" height="5" fill="#173720"/><rect x="91.2" y="5" width="1" height="5" fill="#173720"/><rect x="106.4" y="5" width="1" height="5" fill="#173720"/><rect x="136.8" y="5" width="1" height="5" fill="#173720"/><rect x="152.0" y="5" width="1" height="5" fill="#173720"/><text x="45.6" y="12" text-anchor="middle" font-size="11" font-weight="600" fill="#008D43">NW</text><text x="121.6" y="12" text-anchor="middle" font-size="11" font-weight="600" fill="#008D43">N</text><path d="M73.5 0 L78.5 0 L76.0 3 Z" fill="#00DA6B"/></svg>
+    <span style="display:flex;gap:7px;margin-left:auto;"><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#00DA6B;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span></span>
+    <svg width="11" height="11" viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="4.5" fill="none" stroke="#00DA6B" stroke-width="2"/><rect x="3" y="4.5" width="5" height="2" fill="#00DA6B"/></svg>
   </div>
-
-  <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:1px solid #132216;">
-    <span style="font-size:11px;font-weight:600;letter-spacing:0.22em;color:#00DA6B;">TYRES</span><span style="font-size:15px;font-weight:600;letter-spacing:0.16em;color:#196433;">BAR</span>
-  </div>
-
-  <div style="flex-grow:1;display:flex;flex-direction:column;min-height:0;">
-    <div style="flex:1 1 0;display:flex;min-height:0;border-bottom:1px solid #132216;">
-      <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;">
-          <span style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">LEFT FRONT</span>
-        </div>
-        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">2.28</span>
-      </div>
-      <div style="width:1px;flex-shrink:0;background:#132216;"></div>
-      <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;">
-          <span style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">RIGHT FRONT</span>
-        </div>
-        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">2.21</span>
+  <div style="flex-grow:1;display:flex;min-height:0;">
+    <div style="width:207px;flex-shrink:0;border-right:1px solid #132216;display:flex;flex-direction:column;">
+      <div style="height:22px;flex-shrink:0;padding:4px 0 0 10px;font-size:11px;font-weight:600;letter-spacing:0.22em;color:#00DA6B;">COMPASS</div>
+      <div style="flex-shrink:0;"><svg width="207" height="112" viewBox="0 0 207 112" font-family="'Barlow Semi Condensed',sans-serif"><path d="M95.0 2.0 L105.0 2.0 L100.0 9.0 Z" fill="#00DA6B"/><circle cx="91.7" cy="11.9" r="1.00" fill="#3B2C18"/><circle cx="109.4" cy="11.9" r="1.01" fill="#3B2D18"/><circle cx="74.2" cy="13.5" r="1.05" fill="#413018"/><circle cx="126.9" cy="13.7" r="1.05" fill="#423118"/><circle cx="57.3" cy="16.9" r="1.13" fill="#4E3818"/><circle cx="143.8" cy="17.2" r="1.14" fill="#4F3918"/><circle cx="41.5" cy="22.2" r="1.25" fill="#604318"/><circle cx="159.5" cy="22.6" r="1.26" fill="#614418"/><circle cx="27.5" cy="29.3" r="1.40" fill="#765019"/><circle cx="173.3" cy="29.9" r="1.41" fill="#785119"/><circle cx="16.3" cy="38.4" r="1.56" fill="#8F5F19"/><circle cx="184.3" cy="39.1" r="1.57" fill="#906019"/><circle cx="9.3" cy="49.3" r="1.73" fill="#A96F19"/><circle cx="190.9" cy="50.1" r="1.74" fill="#AA7019"/><circle cx="8.1" cy="61.7" r="1.89" fill="#C17E19"/><circle cx="191.8" cy="62.6" r="1.90" fill="#C37F19"/><circle cx="14.2" cy="74.8" r="2.04" fill="#D88B1A"/><circle cx="185.1" cy="75.7" r="2.05" fill="#D98C1A"/><circle cx="29.0" cy="87.3" r="2.16" fill="#EA961A"/><circle cx="169.6" cy="88.1" r="2.17" fill="#EB971A"/><circle cx="52.5" cy="97.4" r="2.25" fill="#F79E1A"/><circle cx="145.7" cy="97.9" r="2.25" fill="#F89F1A"/><circle cx="82.6" cy="103.2" r="2.29" fill="#FEA21A"/><circle cx="115.3" cy="103.4" r="2.30" fill="#FEA31A"/><text x="91.7" y="7.4" text-anchor="middle" font-size="8.5" font-weight="600" fill="#5B4220">NW</text><text x="143.8" y="12.6" text-anchor="middle" font-size="8.9" font-weight="600" fill="#6B4C1F">N</text><text x="41.5" y="17.4" text-anchor="middle" font-size="9.2" font-weight="600" fill="#7A551F">W</text><text x="184.3" y="34.0" text-anchor="middle" font-size="10.0" font-weight="600" fill="#A26D1D">NE</text><text x="9.3" y="44.1" text-anchor="middle" font-size="10.5" font-weight="600" fill="#B7781D">SW</text><text x="185.1" y="70.2" text-anchor="middle" font-size="11.3" font-weight="600" fill="#DF901B">E</text><text x="29.0" y="81.7" text-anchor="middle" font-size="11.6" font-weight="600" fill="#EE991B">S</text><text x="115.3" y="97.6" text-anchor="middle" font-size="12.0" font-weight="600" fill="#FEA31A">SE</text><text x="100.0" y="56.0" text-anchor="middle" font-size="21" font-weight="600" fill="#00DA6B">NW</text></svg></div>
+      <div style="flex-shrink:0;padding:0 10px;display:flex;align-items:baseline;justify-content:space-between;">
+        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:58px;font-weight:500;line-height:0.9;color:#00DA6B;">322</span>
+        <span style="font-size:14px;color:#196433;">&#176;</span>
       </div>
     </div>
-    <div style="flex:1 1 0;display:flex;min-height:0;border-bottom:1px solid #132216;">
-      <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;">
-          <span style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">LEFT REAR</span>
+    <div style="flex-grow:1;display:flex;flex-direction:column;">
+      <div style="padding:7px 10px;border-bottom:1px solid #132216;">
+        <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">SPEED</div>
+        <div style="display:flex;align-items:baseline;gap:3px;">
+          <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">48</span>
+          <span style="font-size:11px;color:#196433;">km/h</span>
         </div>
-        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">2.28</span>
       </div>
-      <div style="width:1px;flex-shrink:0;background:#132216;"></div>
-      <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;">
-          <span style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">RIGHT REAR</span><span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#FF4426;">LOW</span>
+      <div style="padding:7px 10px;border-bottom:1px solid #132216;">
+        <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">TRIP A</div>
+        <div style="display:flex;align-items:baseline;gap:3px;">
+          <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">12.4</span>
+          <span style="font-size:11px;color:#196433;">km</span>
         </div>
-        <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#FF4426;">2.07</span>
+      </div>
+      <div style="padding:7px 10px;">
+        <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">OUTSIDE</div>
+        <div style="display:flex;align-items:baseline;gap:3px;">
+          <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">21</span>
+          <span style="font-size:11px;color:#196433;">&#176;C</span>
+        </div>
       </div>
     </div>
   </div>
 
-  <div style="height:24px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid #132216;">
-    <span style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#196433;">SPARE</span>
-    <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:16px;font-weight:500;color:#008D43;">0.48</span>
-  </div>
-
-  <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;">
-    <span style="font-size:11px;font-weight:600;letter-spacing:0.06em;color:#FF4426;">1 LOW</span>
-    <span style="font-size:11px;letter-spacing:0.06em;color:#196433;">TARGET 2.1 - 2.3</span>
-  </div>
-</div></div><div class="note"><p>The MAPPED board keeps a 2x2, because a 2x2 makes a spatial claim: the left column is the left of the truck and the top row is the front. At 160px per cell the corner gets its full name on one line AND the word LOW beside it, so the soft wheel is findable without comparing four numbers against a target printed at the bottom of the screen. That is the whole landscape gain here, and it is a real one - the hero feature exists to be read at a glance.</p><p>The board that SHIPS does not use a 2x2, because the spatial claim is exactly what the data does not support. Portrait had no choice: 240px will not hold four columns. Landscape will. So the shipped board is four sensors in a row, in index order, with no geometry implied at all. The layout finally says the same thing the caption has always said.</p><p>The unit moves to the title as a single BAR key. Printing bar four times is noise, and the width it costs is the width the corner names need.</p></div></figure><figure style="width:320px;"><figcaption>L4 / HEALTH</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+</div></div></figure><figure style="width:320px;"><figcaption>L3 / HEALTH</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
 
   <div style="height:22px;flex-shrink:0;display:flex;align-items:center;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
     <span style="flex:1 0 0;display:flex;align-items:center;gap:9px;"><span style="color:#00DA6B;font-weight:600;">14:22</span></span>
@@ -855,23 +859,22 @@
   </div>
 
   <div style="height:156px;flex-shrink:0;display:flex;">
-  <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;">
-  <div style="height:22px;flex-shrink:0;display:flex;align-items:baseline;justify-content:space-between;padding:0 12px;">
-    <span style="font-size:11px;font-weight:600;letter-spacing:0.22em;color:#00DA6B;">HEALTH</span>
-    <span style="font-size:15px;font-weight:600;letter-spacing:0.16em;color:#196433;">V</span>
-  </div>
-    <div style="flex-grow:1;display:flex;align-items:center;padding:0 12px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#00DA6B;">14.1</span></div>
+  <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;padding:0 12px;">
+    <div style="height:16px;flex-shrink:0;margin-top:5px;line-height:16px;font-size:11px;font-weight:600;letter-spacing:0.22em;color:#00DA6B;">HEALTH</div>
+    <div style="height:73px;flex-shrink:0;margin-top:3px;display:flex;align-items:baseline;justify-content:space-between;">
+      <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:66px;font-weight:500;line-height:0.9;color:#00DA6B;">14.1</span><span style="font-size:11px;font-weight:600;letter-spacing:0.10em;color:#196433;">V</span>
+    </div>
   </div>
   <div style="width:1px;flex-shrink:0;background:#132216;"></div>
   <div style="width:112px;flex-shrink:0;display:flex;flex-direction:column;">
     <div style="height:53px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">COOLANT</div>
-      <div style="display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">89</span><span style="font-size:11px;color:#196433;">&#176;C</span></div>
+      <div style="height:16px;line-height:16px;font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">COOLANT</div>
+      <div style="height:35px;margin-top:-3px;display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:35px;color:#00DA6B;">89</span><span style="font-size:11px;color:#196433;">&#176;C</span></div>
     </div>
     <div style="height:1px;flex-shrink:0;background:#0C1A10;"></div>
     <div style="height:53px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
-      <div style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">AMBIENT</div>
-      <div style="display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">14</span><span style="font-size:11px;color:#196433;">&#176;C</span></div>
+      <div style="height:16px;line-height:16px;font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">AMBIENT</div>
+      <div style="height:35px;margin-top:-3px;display:flex;align-items:baseline;gap:3px;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:35px;color:#00DA6B;">14</span><span style="font-size:11px;color:#196433;">&#176;C</span></div>
     </div>
     <div style="height:1px;flex-shrink:0;background:#0C1A10;"></div>
     <div style="flex:1 1 0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
@@ -885,7 +888,61 @@
     <div style="font-size:9px;font-weight:600;letter-spacing:0.16em;color:#196433;">LAMPS</div>
     <div style="display:flex;gap:6px;"><span style="flex:1;height:28px;border:1px solid #132216;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:0.08em;color:#21462B;">OIL</span><span style="flex:1;height:28px;border:1px solid #132216;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:0.08em;color:#21462B;">ABS</span><span style="flex:1;height:28px;border:1px solid #132216;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:0.08em;color:#21462B;">CHARGE</span></div>
   </div>
-</div></div><div class="note"><p>Three regions rather than two. Hero and temperatures share the top 156px in the usual two columns, and LAMPS takes a full-width strip underneath both.</p><p>The pills are the one element that is unambiguously better in landscape: three targets at 98px instead of 74, on a row that is no longer competing with anything for height.</p><p>They are still NOT DRIVEN. Nothing in the firmware can light them, in either orientation. MIL is still deliberately absent.</p></div></figure><figure style="width:320px;"><figcaption>L5 / SETTINGS</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+</div></div><div class="note"><p>Three regions rather than two. Hero and temperatures share the top 156px in the usual two columns, and LAMPS takes a full-width strip underneath both.</p><p>THE HERO IS NOW THE SHARED BLOCK. It used to be centred in whatever the header left of the 156px region - defensible on its own, and it put the numeral 28px below DRIVE's, so the card jumped under the finger on the way past. Header at 5, numeral at 24, and V on the numeral's baseline at 83 rather than as a 20px key in the header; the band note has the derivation. V is 8px in the label face, so unlike DRIVE's L/100 it has room to spare on that line at any value volts can reach. HEALTH has no sub-line, so the 59px under the hero is simply air - which is the point: the air is below the number in all three cards now, not redistributed around it.</p><p>The pills are the one element that is unambiguously better in landscape: three targets at 98px instead of 74, on a row that is no longer competing with anything for height.</p><p>They are still NOT DRIVEN. Nothing in the firmware can light them, in either orientation. MIL is still deliberately absent.</p></div></figure><figure style="width:320px;"><figcaption>L4 / TYRES</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
+
+  <div style="height:22px;flex-shrink:0;display:flex;align-items:center;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
+    <span style="flex:1 0 0;display:flex;align-items:center;gap:9px;"><span style="color:#00DA6B;font-weight:600;">14:22</span></span>
+    <span style="display:flex;align-items:center;gap:7px;"><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#00DA6B;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span><span style="width:5px;height:5px;border-radius:50%;background:#173720;"></span></span>
+    <span style="flex:1 0 0;display:flex;align-items:center;justify-content:flex-end;gap:5px;">LINK<span style="width:6px;height:6px;border-radius:50%;background:#00DA6B;display:inline-block;"></span></span>
+  </div>
+
+  <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:1px solid #132216;">
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.22em;color:#00DA6B;">TYRES</span>
+  </div>
+
+  <div style="flex-grow:1;display:flex;flex-direction:column;min-height:0;">
+    <div style="flex:1 1 0;display:flex;min-height:0;border-bottom:1px solid #132216;">
+      <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;">
+          <span style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">LEFT FRONT</span>
+        </div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">2.28</span><span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">bar</span></div>
+      </div>
+      <div style="width:1px;flex-shrink:0;background:#132216;"></div>
+      <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;">
+          <span style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">RIGHT FRONT</span>
+        </div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">2.21</span><span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">bar</span></div>
+      </div>
+    </div>
+    <div style="flex:1 1 0;display:flex;min-height:0;border-bottom:1px solid #132216;">
+      <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;">
+          <span style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">LEFT REAR</span>
+        </div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#00DA6B;">2.28</span><span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">bar</span></div>
+      </div>
+      <div style="width:1px;flex-shrink:0;background:#132216;"></div>
+      <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center;padding:0 12px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;">
+          <span style="font-size:9px;font-weight:600;letter-spacing:0.14em;color:#196433;">RIGHT REAR</span><span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#FF4426;">LOW</span>
+        </div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;"><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.1;color:#FF4426;">2.07</span><span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">bar</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:24px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid #132216;">
+    <span style="font-size:10px;font-weight:600;letter-spacing:0.16em;color:#196433;">SPARE</span>
+    <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:16px;font-weight:500;color:#008D43;">0.48</span>
+  </div>
+
+  <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;">
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.06em;color:#FF4426;">1 LOW</span>
+    <span style="font-size:11px;letter-spacing:0.06em;color:#196433;">TARGET 2.1 - 2.3</span>
+  </div>
+</div></div><div class="note"><p>BOTH BOARDS ARE A 2x2 NOW, reading order 1 2 on the top row, 3 4 beneath. The shipped board was four sensors in a single row in index order, and that was the more conservative arrangement for a reason that still stands: a grid implies front/rear and left/right, and 21 3B returns four bytes in a fixed order with nothing in the captures saying which wheel is which. Four across made no claim where a 2x2 of numbers invites one. Changed on the owner's explicit instruction after precisely that was put to them, which makes it their call and not drift. The cells still read SENSOR, never LF/RF/LR/RR - the layout suggests a shape while the labels refuse to name a corner, and nothing here is a mapping until one is measured. Deflate a wheel and watch which index moves.</p><p>SO THE TWO BOARDS NOW DIFFER ONLY IN THE NAMES. The mapped board is the aspirational one - LEFT FRONT / RIGHT FRONT / LEFT REAR / RIGHT REAR, with a LOW chip per cell that the firmware does not draw at all (it colours the value instead). It is MEANT to disagree with what ships: do not correct it against the shipped board or against the firmware.</p><p>THE BAR KEY IS GONE FROM THE HEADER, replaced by a small bar beside each of the four values. The key was one word in the title on the argument that printing bar four times is noise and the width it costs is the width the cells need. The width turned out to be there: bar in font_label_14 is 20.9px, so right-aligned 10px inside a 159px cell its left edge is 128.1, and the widest string the formatter can physically emit - a 10.00 shape at 75.9px, since a raw 255 caps at 17.58 and two digits therefore always start with a 1 - reaches only 117.5. That is 10.6px of clearance at the worst case and 17.6 at an ordinary 2.34. Portrait has always put a bar in every cell; both bands now say the same thing in the same place. Owner's instruction.</p><p>THE UNIT IS RIGHT-ALIGNED INSIDE ITS CELL, not trailed after the number, and it sits on the VALUE'S BASELINE (value top + 35 - 13, the same rule the hero units and the stack rows follow). The value is centred in its cell and its width changes with the reading - 27px for a dash pair, 62 for 2.34, 71 for a garbage 17.58 - so a unit placed after the glyphs would slide sideways every time a corner updated, on four cells at once, on the one page whose whole job is being read at a glance. A one-shot right-aligned box cannot move whatever the number does. THE VALUES THEMSELVES DID NOT MOVE: they are still centred exactly where the BAR-key version had them.</p><p>Repaired while doing this, on the shipped board only: it was closing the 320x240 root one line early, which left SPARE and the TARGET / n LOW footer outside the board box, where the contact sheet's overflow:hidden clipped them. Both rows had been in the markup and invisible.</p></div></figure><figure style="width:320px;"><figcaption>L6 / SETTINGS  (L5 / ACCEL has no board)</figcaption><div class="screen" style="width:320px;height:240px;"><div style="width:320px;height:240px;background:#000000;font-family:'Barlow Semi Condensed','Arial Narrow',sans-serif;display:flex;flex-direction:column;overflow:hidden;">
 
   <div style="height:22px;flex-shrink:0;display:flex;align-items:center;padding:0 10px;border-bottom:1px solid #132216;font-size:12px;letter-spacing:0.04em;color:#008D43;">
     <span style="flex:1 0 0;display:flex;align-items:center;gap:9px;"><span style="color:#00DA6B;font-weight:600;">14:22</span></span>
@@ -995,35 +1052,34 @@
   </div>
 
   <div style="height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:1px solid #132216;">
-    <span style="font-size:11px;font-weight:600;letter-spacing:0.22em;color:#00DA6B;">TYRES</span><span style="font-size:15px;font-weight:600;letter-spacing:0.16em;color:#196433;">BAR</span>
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.22em;color:#00DA6B;">TYRES</span>
   </div>
 
   <div style="flex-grow:1;display:flex;flex-direction:column;min-height:0;border-bottom:1px solid #132216;">
     <div style="flex:1 1 0;display:flex;min-width:0;">
         <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">SENSOR 1</span>
-          <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.15;color:#00DA6B;">2.28</span>
+          <span style="align-self:stretch;display:flex;align-items:baseline;padding:0 10px;"><span style="flex:1 1 0;"></span><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.15;color:#00DA6B;">2.28</span><span style="flex:1 1 0;display:flex;justify-content:flex-end;"><span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">bar</span></span></span>
         </div>
         <div style="width:1px;flex-shrink:0;background:#132216;"></div>
         <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">SENSOR 2</span>
-          <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.15;color:#00DA6B;">2.21</span>
+          <span style="align-self:stretch;display:flex;align-items:baseline;padding:0 10px;"><span style="flex:1 1 0;"></span><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.15;color:#00DA6B;">2.21</span><span style="flex:1 1 0;display:flex;justify-content:flex-end;"><span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">bar</span></span></span>
         </div>
     </div>
     <div style="height:1px;flex-shrink:0;background:#132216;"></div>
     <div style="flex:1 1 0;display:flex;min-width:0;">
         <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">SENSOR 3</span>
-          <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.15;color:#00DA6B;">2.28</span>
+          <span style="align-self:stretch;display:flex;align-items:baseline;padding:0 10px;"><span style="flex:1 1 0;"></span><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.15;color:#00DA6B;">2.28</span><span style="flex:1 1 0;display:flex;justify-content:flex-end;"><span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">bar</span></span></span>
         </div>
         <div style="width:1px;flex-shrink:0;background:#132216;"></div>
         <div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">SENSOR 4</span>
-          <span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.15;color:#FF4426;">2.07</span>
+          <span style="align-self:stretch;display:flex;align-items:baseline;padding:0 10px;"><span style="flex:1 1 0;"></span><span style="font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-size:30px;font-weight:500;line-height:1.15;color:#FF4426;">2.07</span><span style="flex:1 1 0;display:flex;justify-content:flex-end;"><span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#196433;">bar</span></span></span>
           <span style="font-size:9px;font-weight:600;letter-spacing:0.12em;color:#FF4426;margin-top:3px;">LOW</span>
         </div>
     </div>
-  </div>
   </div>
 
   <div style="height:24px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid #132216;">

@@ -21,3 +21,19 @@ esp_err_t touchInit(void);
 
 // True once the controller answered and LVGL accepted the input device.
 bool touchReady(void);
+
+// Was the contact now ending a DRAG rather than a tap?
+//
+// Answered by LVGL's own gesture recognition, subscribed on the input device
+// itself -- see the comment on s_wasDrag in Touch.cpp. Every LV_EVENT_CLICKED
+// handler in Ui.cpp asks this and does nothing when it is true, which is what
+// stops a swipe that started on a tap target from also firing that target.
+//
+// It is the COMPLEMENT of LVGL's own click suppression, not a replacement for
+// it: LVGL already drops CLICKED when a drag became a scroll, but only when
+// something was actually scrollable in that direction with room to move. This
+// covers every other drag -- vertical ones over the horizontal page scroller,
+// and any list too short to have anywhere to go.
+//
+// Valid from the CLICKED that ends a press until the next press begins.
+bool touchWasDrag(void);

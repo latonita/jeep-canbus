@@ -163,9 +163,51 @@ static const char* TAG = "touch";
 // held-still coordinates is a zero-motion entry in LVGL's throw history, which
 // is what was gutting the flick velocity. A finger that has not moved is being
 // held deliberately, and wants to be bridged.
-#define TOUCH_RELEASE_HOLD_INT_MS 20
-#define TOUCH_MOVING_RECENT_MS    200u
-#define TOUCH_MOVED_PX            3
+// HOW FAR A FINGER MAY TRAVEL AND STILL BE A TAP.
+//
+// Handed to LVGL as the gesture distance so that its own arbitration trips at
+// the same travel as its scroll limit (LV_INDEV_DEF_SCROLL_LIMIT, 10 px,
+// lv_indev.c:32). Matching them is the point: left at LVGL's default gesture
+// distance of 50 there is a 10..50 px dead band where a drag claims no scroll
+// AND raises no gesture, and a release in that band is delivered as a plain
+// click. That dead band is most of what "swiping registers as a tap" was.
+#define TOUCH_DRAG_PX 10
+
+// THERE IS ONE RELEASE HOLD NOW, AND THE SECOND ONE WAS THE BUG.
+//
+// There used to be two: 60 ms for a still finger and 20 ms for a finger that
+// had moved recently, chosen per poll. Two things were wrong with it, and
+// together they produced every input complaint on this panel -- taps firing
+// twice, swipes arriving as taps, and long-press being unreachable.
+//
+// FIRST, the "recently moved" test was armed by the contact STARTING. The
+// stamp was written when `!s_pressed || dx >= 3 || dy >= 3`, and `!s_pressed`
+// is true on the first frame of every contact -- so a perfectly still tap
+// counted as moving for its first 200 ms and got the 20 ms hold.
+//
+// SECOND, and fatal on its own: 20 ms is SHORTER THAN THIS CONTROLLER'S
+// REPORTING INTERVAL. The note on lv_indev_set_scroll_throw below already
+// says it -- "this controller reports more slowly than the 16 ms indev poll" --
+// so a 20 ms hold tolerates barely one missed poll. During a SWIPE the finger
+// really is moving, so the heuristic really did select 20 ms, and the swipe
+// was chopped into fragments.
+//
+// A fragment is not a short press, it is a NEW press: LVGL clears act_obj on
+// release and the next press takes its new-object branch, which zeroes
+// scroll_sum, scroll_dir, scroll_obj, gesture_sum, gesture_sent, press_moved
+// and pr_timestamp (lv_indev.c:1317-1338). LVGL has no debounce anywhere. So
+// each fragment restarted from zero travel: never 10 px in one press, so no
+// scroll and no gesture, so CLICKED on release -- twice or three times over,
+// and never the 400 ms that LONG_PRESSED needs.
+//
+// The short hold existed to keep zero-motion samples out of LVGL's throw
+// velocity history at the end of a flick. That is already paid for by
+// lv_indev_set_scroll_throw(4) below, which exists for exactly this
+// controller's slow reporting -- so the short hold was redundant as well as
+// harmful.
+//
+// 60 ms is ~4 polls of tolerance. If a contact ever chops again, this is the
+// number to raise, and the symptom will be a double tap.
 
 static i2c_master_bus_handle_t   s_bus = nullptr;
 static esp_lcd_panel_io_handle_t s_io = nullptr;
@@ -176,7 +218,6 @@ static lv_indev_t*               s_indev = nullptr;
 static int32_t  s_lastX = 0;
 static int32_t  s_lastY = 0;
 static uint32_t s_lastPointMs = 0u;
-static uint32_t s_lastMoveMs = 0u;   // when the contact last actually moved
 static bool     s_pressed = false;
 
 // Whether the INT line has been OBSERVED to behave as a level.
@@ -193,6 +234,52 @@ static bool     s_pressed = false;
 // frame and is therefore a level. Until that is seen, the timer latch alone
 // decides, which is the behaviour without any of this.
 static bool     s_intProven = false;
+
+// WAS THE CONTACT NOW ENDING A DRAG RATHER THAN A TAP?
+//
+// Answered by LVGL, not by us. Every CLICKED handler in Ui.cpp consults it and
+// does nothing when it is set, which is what stops a swipe that began on a
+// tap target from also firing that target.
+//
+// The mechanism, and why it is needed ON TOP of LVGL's scroll suppression:
+// LVGL already drops CLICKED when a drag became a scroll (lv_indev.c:1526,
+// `if(scroll_obj == NULL)`). But a scroll is only claimed when some ancestor
+// is SCROLLABLE, in the gesture's direction, WITH ROOM TO MOVE
+// (lv_indev_scroll.c:391-417). The page scroller here is LV_DIR_HOR, so a
+// VERTICAL drag finds no candidate at all and LVGL delivers a click -- which
+// is why dragging up or down on the HEALTH faults strip opened the drill-down,
+// on a SETTINGS row toggled the setting, and on a price button stepped the
+// price. The short fault list had the same hole horizontally: nothing to
+// scroll means nothing to suppress the click with.
+//
+// LV_EVENT_GESTURE is the complement of exactly that case -- indev_gesture()
+// begins `if(indev->pointer.scroll_obj) return;` (lv_indev.c:1775), so it
+// fires precisely when no scroll was claimed. Between the two, every drag is
+// accounted for: one suppresses the click itself, the other tells us to.
+//
+// SUBSCRIBED ON THE INDEV, not on a screen or a widget. lv_indev_send_event()
+// forwards PRESSED and GESTURE to indev subscribers (lv_indev.c:1888-1900 and
+// :1818), and an indev outlives every screen -- which matters here, because
+// rootTeardown()/rootRebuild() delete the whole widget tree on a palette swap
+// or an orientation flip. The hand-rolled latches this replaces leaked exactly
+// there: s_rowPressed survived a page delete holding a stale press point.
+static bool s_wasDrag = false;
+
+bool touchWasDrag(void) { return s_wasDrag; }
+
+// PRESSED arrives once per press, from the new-object branch that also zeroes
+// LVGL's own gesture accumulator -- so clearing here and setting on GESTURE
+// keeps our answer in step with LVGL's, by construction rather than by a
+// timeout.
+static void onIndevPressed(lv_event_t* e) {
+  (void)e;
+  s_wasDrag = false;
+}
+
+static void onIndevGesture(lv_event_t* e) {
+  (void)e;
+  s_wasDrag = true;
+}
 
 bool touchReady(void) { return s_indev != nullptr; }
 
@@ -213,15 +300,8 @@ static void touchReadCb(lv_indev_t* indev, lv_indev_data_t* data) {
   if (esp_lcd_touch_read_data(s_touch) == ESP_OK &&
       esp_lcd_touch_get_coordinates(s_touch, &x, &y, &strength, &points, 1) &&
       points > 0u) {
-    const int32_t nx = static_cast<int32_t>(x);
-    const int32_t ny = static_cast<int32_t>(y);
-    const int32_t dx = (nx > s_lastX) ? (nx - s_lastX) : (s_lastX - nx);
-    const int32_t dy = (ny > s_lastY) ? (ny - s_lastY) : (s_lastY - ny);
-    if (!s_pressed || dx >= TOUCH_MOVED_PX || dy >= TOUCH_MOVED_PX) {
-      s_lastMoveMs = lv_tick_get();
-    }
-    s_lastX = nx;
-    s_lastY = ny;
+    s_lastX = static_cast<int32_t>(x);
+    s_lastY = static_cast<int32_t>(y);
     s_lastPointMs = lv_tick_get();
     s_pressed = true;
   } else if (s_pressed) {
@@ -240,16 +320,11 @@ static void touchReadCb(lv_indev_t* indev, lv_indev_data_t* data) {
         ESP_LOGI(TAG, "INT is a level: contact tracked from GPIO%d, not the timer",
                  (int)TOUCH_PIN_INT);
       }
-    } else {
-      // A finger that moved in the last fifth of a second is finishing a swipe:
-      // let go at once. A still one is being held: bridge the gap.
-      const bool wasMoving =
-          (s_lastMoveMs != 0u) && (lv_tick_elaps(s_lastMoveMs) < TOUCH_MOVING_RECENT_MS);
-      const uint32_t hold = (s_intProven && wasMoving) ? TOUCH_RELEASE_HOLD_INT_MS
-                                                       : TOUCH_RELEASE_HOLD_MS;
-      if (lv_tick_elaps(s_lastPointMs) >= hold) {
-        s_pressed = false;
-      }
+    } else if (lv_tick_elaps(s_lastPointMs) >= TOUCH_RELEASE_HOLD_MS) {
+      // INT says the finger is gone and the bridge has run out. One hold for
+      // every gesture -- see TOUCH_RELEASE_HOLD_MS for why there is no longer
+      // a shorter one for a moving finger.
+      s_pressed = false;
     }
   }
 
@@ -425,6 +500,26 @@ esp_err_t touchInit(void) {
     // (LV_OBJ_FLAG_SCROLL_ONE): surplus momentum cannot overshoot into the page
     // after next, it can only make the intended page arrive.
     lv_indev_set_scroll_throw(s_indev, 4);
+
+    // Gesture distance DOWN to the scroll limit, so the two arbitrations trip
+    // together and leave no dead band. See TOUCH_DRAG_PX.
+    lv_indev_set_gesture_min_distance(s_indev, TOUCH_DRAG_PX);
+
+    // Gesture velocity to ZERO, which switches its accumulator reset OFF.
+    //
+    // Not a tuning choice -- required by this driver's shape. indev_gesture()
+    // zeroes gesture_sum on any poll where BOTH axes moved less than this
+    // (lv_indev.c:1787-1791), and the read callback above deliberately repeats
+    // the last coordinate while bridging a gap in the controller's reporting,
+    // so mid-drag polls legitimately carry a zero delta. At LVGL's default of
+    // 3 those polls would wipe the travel accumulated so far and a slow or
+    // stuttering drag could never reach the distance above. At 0 the test
+    // `|vect| < 0` is never true, so the sum accumulates across the whole
+    // press and only a new press clears it.
+    lv_indev_set_gesture_min_velocity(s_indev, 0);
+
+    lv_indev_add_event_cb(s_indev, onIndevPressed, LV_EVENT_PRESSED, nullptr);
+    lv_indev_add_event_cb(s_indev, onIndevGesture, LV_EVENT_GESTURE, nullptr);
   }
   lvgl_port_unlock();
   if (s_indev == nullptr) {
@@ -434,11 +529,11 @@ esp_err_t touchInit(void) {
 
   ESP_LOGI(TAG,
            "CST328 up: i2c%d sda=%d scl=%d rst=%d int=%d, %dx%d, "
-           "swap=%d mirror=%d/%d, release hold %dms still / %dms moving",
+           "swap=%d mirror=%d/%d, release hold %dms, drag %dpx",
            static_cast<int>(TOUCH_I2C_PORT), TOUCH_PIN_SDA, TOUCH_PIN_SCL,
            TOUCH_PIN_RST, TOUCH_PIN_INT, LCD_H_RES, LCD_V_RES,
            static_cast<int>(TOUCH_SWAP_XY), static_cast<int>(TOUCH_MIRROR_X),
            static_cast<int>(TOUCH_MIRROR_Y), TOUCH_RELEASE_HOLD_MS,
-           TOUCH_RELEASE_HOLD_INT_MS);
+           TOUCH_DRAG_PX);
   return ESP_OK;
 }

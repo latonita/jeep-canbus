@@ -14,7 +14,7 @@ See [`../ARCHITECTURE.md`](../ARCHITECTURE.md) for the whole-system picture.
 
 | | |
 |---|---|
-| `core/` protocol + decode + state + scheduling | **written, 8505 host assertions passing** |
+| `core/` protocol + decode + state + scheduling | **written, 86,300 host assertions passing across 17 suites** |
 | `src/At328Link.cpp` (the UART link) | written, **never run against hardware** |
 | Display / LVGL UI | not started, and to be designed before it is built |
 | LoRa, GPS | not started — and LoRa does not fit this board, see ARCHITECTURE.md |
@@ -82,8 +82,16 @@ whole timeout on the first read — where the latency actually is, up to ~140 ms
 intervenes — then allows 150 ms (ISO 15765-2 N_Cr) per follow-on frame under a hard call budget.
 If a true deadline is ever needed, `ICarLink` needs a `nowMs()`.
 
-**The link session is `ATE0 ATL0 ATS0 ATH1 ATCAF0`.** `ATS0` is what makes a frame line exactly
-three id nibbles plus 2n data nibbles, and `ATCAF0` means we build the ISO-TP PCI byte ourselves.
+**The link session is `AT@SML0 AT@SM0` / `ATZ ATE0 ATL0 ATS0 ATH1 ATCAF0` / `AT@SML2`.** The two
+silencing commands come FIRST, before `ATZ`, because the 328 is not reset by us opening the port:
+it may still be streaming from a previous session in a format this one has not agreed to, and
+every such line would be misclassified into the eight-slot reply queue that `ATZ`'s own answer
+has to arrive in.
+
+**`ATS0`'s role has SHRUNK to the request/response path.** It is what makes a RESPONSE line
+exactly three id nibbles plus 2n data nibbles, and that is now all it governs: the background
+stream is LAWICEL under `AT@SML2`, which ignores `ATS` and `ATL` entirely and carries its own
+`t` marker, DLC nibble and timestamp. `ATCAF0` means we build the ISO-TP PCI byte ourselves.
 `ATZ` resets the AT layer only and never re-initialises the adapter's CAN controller, so it cannot
 stall the car's VES announce.
 
@@ -93,14 +101,35 @@ restarts; it answers `?` and moves on. `At328Link::begin()` drains before handsh
 ## Folders
 
 ```
-core/       pure C++, no ESP-IDF: link interface, ISO-TP, KWP, signal tables,
-            decoder, vehicle-state hub, poll scheduler
-src/        ESP-IDF side: Board.h (pin map), At328Link (UART), main.cpp
-test/       host test suites, one directory each
+core/       pure C++, no ESP-IDF: link interface, the two frame-line parsers,
+            StreamClock, ISO-TP, KWP, signal tables, decoder, vehicle-state hub,
+            poll scheduler, the derived values and the snapshot
+src/        ESP-IDF side: Board.h (pin map), At328Link (UART), Display, Touch,
+            Ui, the NVS stores, main.cpp
+design/     .dc.html artboards at true size, canvas.json, build.py
+test/       host test suites, one directory each, auto-discovered by the runner
 fixtures/   real recorded frames and DTC pairs, extracted from captures
 tools/      gen_signals.py — the table generator
-scripts/    run-host-tests.sh
+scripts/    run-host-tests.sh, emulate-car.py (the bench emulator: the 328 AND
+            the modules behind it), emu-verify.cpp (checks that emulator against
+            the real core/), replay-accel.cpp (a whole drive through core/ on the
+            laptop), playback.log, flash.ps1
 ```
+
+## Desk testing without a car
+
+```sh
+python scripts/emulate-car.py --port COM5                  # polled pages only
+python scripts/emulate-car.py --port COM5 --log playback --loop
+python scripts/emulate-car.py --port COM5 --log drive      # the owner's real drive
+```
+
+`--log` takes a **name** out of the `LOGS` table in `emulate-car.py` or any path.
+`playback` is the 2015 capture in `scripts/`; `drive` is a real 25-minute timestamped
+drive (224,709 frames, 1484.9 s, 48 CAN ids) kept outside the repo in
+`../../jeep-can-b-logs/` — too big to vendor, and it is the one that exercises the
+rollover-vs-restart guard, since the driver cranked the engine mid-capture and the
+gateway's stamp counter restarted.
 
 ## Licence
 

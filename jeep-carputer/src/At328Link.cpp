@@ -12,8 +12,20 @@
 
 static const char* TAG = "at328";
 
-// 4096 is about 1.6 s of cover at the measured 2.5 kB/s of stream traffic
-// (151 frames/s, mean line 16.7 bytes with ATS0).
+// 4096 is about 1.2 s of cover at the 3.4 kB/s AT@SML2 costs, and the figure
+// MOVED when the stream did: a stamped LAWICEL line is
+// `t` + 3 id + 1 DLC + 2n data + 4 stamp + CR, six bytes more than the ELM
+// line it replaces.
+//
+// Measured rather than assumed, over a 220673-frame capture (mean DLC 6.34):
+//
+//   AT@SM1  (was)  16.7 B/line -> 2.5 kB/s -> 22 % of the link, 1.6 s of cover
+//   AT@SML2 (now)  22.7 B/line -> 3.4 kB/s -> 30 % of the link, 1.2 s of cover
+//
+// So the timestamps cost eight points of link headroom and a quarter of the
+// buffer's cover, which is the price of the whole change and is worth stating
+// in one place. 30 % still leaves the link far from saturated, and 1.2 s is
+// still an eternity against the stalls this is sized for.
 //
 // It is sized for OUR stalls, not for bus bursts -- chiefly an NVS commit,
 // which disables the flash cache for tens of milliseconds. And it is what
@@ -25,28 +37,27 @@ static const char* TAG = "at328";
 
 namespace {
 
-int hexVal(char c) {
-  if (c >= '0' && c <= '9') { return c - '0'; }
-  if (c >= 'A' && c <= 'F') { return c - 'A' + 10; }
-  if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
-  return -1;
-}
-
 bool sameText(const char* line, const char* want) {
   return strcmp(line, want) == 0;
 }
 
-// THE ONE PLACE the AT@SM level and the timestamp width are related.
+// THE ONE PLACE a stream level and a timestamp width are related.
 //
-// The level is the declaration: one number saying both "stream on" and "this
-// wide". Both the classifier's accepted length set and parseFrameLine's strip
-// length come from this function, because if those two ever disagreed about the
-// width the line would be accepted at one split and decoded at another -- which
-// lands as a frame silently routed to the command reader, the exact failure
-// core/LinkLine.h's header is written about.
+// The levels mirror each other across the two formats -- AT@SM<n> and AT@SML<n>
+// carry the same widths for the same n -- so this is one function and not two,
+// which is also what stops the ladder in begin() from having to remember which
+// mapping goes with which rung.
 //
-// Level 1 streams unstamped and is the default, so an unmodified session is
-// byte-identical to the one this file has always configured.
+// What the width is FOR differs sharply between the two, though, and that is
+// the whole reason this host moved:
+//
+//   LAWICEL -- the width is CHECKED. Every line's own DLC nibble says how many
+//              data bytes follow, so linkParseStreamLine() derives the width
+//              from the line and hands it back; this value is only what we
+//              ASKED for, and a disagreement is counted and logged.
+//   ELM     -- the width is OBEYED, because it cannot be measured. It is the
+//              only thing that says where the data stops and the time starts,
+//              and being wrong is silent in both directions.
 uint8_t stampCharsForLevel(uint8_t level) {
   switch (level) {
     case 2u:  return LINK_LINE_TS_SHORT;   // 4 digits, millis() % 60000
@@ -66,18 +77,25 @@ At328Link::At328Link(uart_port_t port, int txPin, int rxPin, uint32_t baud)
       respId_(0u),
       targetValid_(false),
       lastRxMs_(0u),
+      wire_(LINK_WIRE_NONE),
       streamLevel_(0u),
       stampChars_(LINK_LINE_TS_NONE),
       lastStampMs_(0u),
       haveStamp_(false),
-      streamLevelReq_(1u),
+      stampMismatch_(0u),
+      // LAWICEL level 2 is the DEFAULT and the whole point: stamped frames, and
+      // a wire whose stamp width the reader can verify rather than assume.
+      wireReq_(LINK_WIRE_LAWICEL),
+      streamLevelReq_(2u),
       ready_(false),
       monitoring_(false),
       streaming_(false),
       sink_(nullptr),
       frameQ_(nullptr),
       replyQ_(nullptr),
-      reader_(nullptr) {}
+      reader_(nullptr) {
+  streamClockInit(clock_, LINK_LINE_TS_NONE);
+}
 
 uint32_t At328Link::nowMs() {
   return static_cast<uint32_t>(esp_timer_get_time() / 1000);
@@ -89,7 +107,37 @@ void At328Link::writeLine(const char* s) {
 }
 
 void At328Link::drain() {
-  uart_flush_input(port_);
+  // uart_flush_input() ONLY while nothing else owns the port.
+  //
+  // THIS HUNG THE LINK DEAD, and the failure was completely silent. Once the
+  // reader task exists it sits inside uart_read_bytes(), which HOLDS the
+  // driver's rx mutex for the whole time it waits -- and uart_flush_input()
+  // wants that same mutex. The reader runs one priority ABOVE carTask on the
+  // SAME core, so it re-takes the mutex the instant it is released and the
+  // flush never wins it. carTask stops for good, inside begin(), having sent
+  // three bytes -- so there is no "no response to ATZ", no "link not ready,
+  // retrying", nothing on the console at all. The panel comes up and shows
+  // dashes for ever, which is indistinguishable from an unplugged gateway.
+  //
+  // command() already learned this and discards stale lines by resetting its
+  // queue instead ("Was a uart_flush_input()" there). Two call sites did not:
+  // the one in begin() after streamStop(), which is on EVERY bring-up, and the
+  // one in monitorBegin(), which is only on the ATMA rung and so had never been
+  // reached. The rule lives HERE now, where it cannot be missed a third time.
+  //
+  // Draining the QUEUES is the honest equivalent once the reader owns the
+  // port: what a caller wants discarded is lines from before whatever it just
+  // did, and after the reader starts those are lines, not bytes.
+  if (reader_ == nullptr) {
+    uart_flush_input(port_);
+    return;
+  }
+  if (replyQ_ != nullptr) {
+    xQueueReset(replyQ_);
+  }
+  if (frameQ_ != nullptr) {
+    xQueueReset(frameQ_);
+  }
 }
 
 // Reads until CR, or returns immediately when the '>' prompt appears. The
@@ -147,14 +195,21 @@ LinkStatus At328Link::readLine(char* out, uint16_t cap, uint16_t& len,
 // ---------------------------------------------------------------------------
 // The reader task.
 //
-// Exactly one task ever reads the UART. It classifies each line and routes it:
-// a frame carrying the id we are currently waiting on goes to frameQ_ for
-// whoever called readFrame(); every other frame is a broadcast and goes
-// straight to the sink; anything that is not a frame is a command reply and
-// goes to replyQ_.
+// Exactly one task ever reads the UART. It classifies each line and routes it
+// three ways, and under AT@SML2 the three are told apart by the SHAPE of the
+// line rather than by arithmetic on it:
+//
+//   a LAWICEL line ('t' ...) is a background STREAM frame. It goes to the sink,
+//     always, with its stamp mapped onto our clock. It is never a response --
+//     the gateway answers requests in the ELM shape, so a stream line cannot be
+//     part of the transaction in flight.
+//   an ELM-shaped line is a request RESPONSE. It goes to frameQ_ when it carries
+//     the id we are waiting on. (On the AT@SM fallback and inside an ATMA window
+//     this shape is every frame, which is why the id test is still here.)
+//   anything else is a command reply and goes to replyQ_.
 //
 // That split is what makes requests and broadcasts able to overlap. With the
-// 2.1 adapter's AT@SM stream the two genuinely arrive interleaved, and the old
+// 2.1 adapter's stream the two genuinely arrive interleaved, and the old
 // alternation -- listen for a window, go deaf, spend a few requests -- is gone.
 // ---------------------------------------------------------------------------
 
@@ -184,22 +239,70 @@ void At328Link::readerLoop() {
     lastRxMs_ = nowMs();
 
     if (len != 0u) {
-      // ONE read of the stamp width per line, shared by the classifier and the
-      // parser. Read it twice and a begin() landing in between would let them
-      // split the same characters differently -- 19 chars accepted as 8
+      // ONE read of the ELM stamp width per line, shared by the classifier and
+      // that parser. Read it twice and a begin() landing in between would let
+      // them split the same characters differently -- 19 chars accepted as 8
       // unstamped data bytes and then decoded as 6 bytes plus a stamp, or the
       // reverse -- and both halves would look like they had done their job.
-      const uint8_t ts = stampChars_;
+      //
+      // Under LAWICEL this is ZERO whatever the stream level is, because the
+      // only ELM-shaped lines left are request responses and the gateway never
+      // stamps those (AtServer.h, "which lines get which format"). The LAWICEL
+      // branch measures its own width and ignores this entirely.
+      const bool lawicel = (wire_ == LINK_WIRE_LAWICEL);
+      const uint8_t wantTs = stampChars_;
+      const uint8_t elmTs = lawicel ? LINK_LINE_TS_NONE : wantTs;
 
-      if (linkClassifyLine(line, len, ts) == LINK_LINE_FRAME) {
+      const LinkLineKind kind = linkClassifyLine(line, len, elmTs);
+
+      if (kind == LINK_LINE_STREAM) {
+        // A LAWICEL line, so a BACKGROUND STREAM frame -- and never a response,
+        // which is worth stating because the old code had to guess from the id.
+        // The gateway routes a frame matching the active filter to the ELM
+        // response path while a request is collecting, and streams it otherwise,
+        // so a stamped LAWICEL line is by construction not part of the
+        // transaction in flight. Sending one to frameQ_ would mis-attribute a
+        // late or unfiltered frame to a request that did not ask for it.
         CanFrame f;
         uint32_t stamp = 0u;
-        if (parseFrameLine(line, len, ts, f, stamp)) {
-          if (ts != LINK_LINE_TS_NONE) {
-            // Latched, not attached. Mapping the adapter's clock onto ours is a
-            // job of its own (offset estimation, and unwrapping level 2's 60 s
-            // rollover) and half of it would be worse than none, so the sink
-            // below keeps getting the host clock exactly as before.
+        uint8_t got = 0u;
+        if (linkParseStreamLine(line, len, f, stamp, got)) {
+          uint32_t t = nowMs();
+          if (got != LINK_LINE_TS_NONE) {
+            lastStampMs_ = stamp;
+            haveStamp_ = true;
+            // MAPPED, not merely latched. This is the change the format switch
+            // was for: the sink gets the time the GATEWAY saw the frame, put on
+            // our timebase by core/StreamClock, so a fuel integral and an
+            // acceleration split are measured on the car's intervals instead of
+            // on whenever this task got round to the line. See StreamClock.h for
+            // why the mapping is a minimum-filtered offset and why that is what
+            // keeps `nowMs() - t` a real age.
+            t = streamClockMap(clock_, stamp, t);
+          }
+          if (got != wantTs) {
+            // The adapter appended a width we did not order. The frame above is
+            // still decoded CORRECTLY -- that is what a self-describing wire
+            // buys -- so this is a complaint, not a drop. On the ELM shape the
+            // same disagreement was unobservable and showed up as two data bytes
+            // read as a time.
+            // Read-modify-write rather than `++`, which C++20 deprecates on a
+            // volatile. The reader task is the only writer, so this needs no
+            // atomicity beyond the single word it already has.
+            stampMismatch_ = stampMismatch_ + 1u;
+          }
+          if (sink_ != nullptr) {
+            sink_(f, t);
+          }
+        }
+      } else if (kind == LINK_LINE_FRAME) {
+        // The ELM shape. Under LAWICEL that is a request RESPONSE and nothing
+        // else; on the AT@SM fallback and in an ATMA window it is every frame,
+        // which is why the id test below stays exactly as it was.
+        CanFrame f;
+        uint32_t stamp = 0u;
+        if (linkParseFrameLine(line, len, elmTs, f, stamp)) {
+          if (elmTs != LINK_LINE_TS_NONE) {
             lastStampMs_ = stamp;
             haveStamp_ = true;
           }
@@ -212,7 +315,10 @@ void At328Link::readerLoop() {
             // reader, because every broadcast behind it would stall too.
             (void)xQueueSend(frameQ_, &f, 0);
           } else if (sink_ != nullptr) {
-            // The HOST clock, on purpose, even when a stamp was decoded above.
+            // The HOST clock here, and honestly so: an ELM line carries no
+            // stamp on the LAWICEL path, and on the AT@SM path a stamp is not
+            // measurable so mapping one would be building a clock on a width
+            // nobody could check.
             sink_(f, nowMs());
           }
         }
@@ -296,8 +402,18 @@ LinkStatus At328Link::begin() {
   // the same reason: a width left over from a session that is gone would have
   // the reader stripping four characters off lines nothing is appending to.
   streaming_ = false;
+  wire_ = LINK_WIRE_NONE;
   streamLevel_ = 0u;
   stampChars_ = LINK_LINE_TS_NONE;
+  // The clock goes with them, and for a sharper version of the same reason: it
+  // holds an offset between OUR clock and a particular gateway's, and a
+  // reconnect may be to a board that has been power-cycled since. A stale
+  // offset would map every frame to a time minutes away from now, which every
+  // staleness test downstream would read as "no data" -- a dashboard of dashes
+  // on a healthy link.
+  streamClockInit(clock_, LINK_LINE_TS_NONE);
+  haveStamp_ = false;
+  stampMismatch_ = 0u;
 
   uart_config_t cfg = {};
   cfg.baud_rate = static_cast<int>(baud_);
@@ -320,20 +436,26 @@ LinkStatus At328Link::begin() {
     return LINK_NOT_READY;
   }
 
+  // BREADCRUMBS, at DEBUG so they cost nothing at the default INFO level.
+  //
+  // They stay because the rx-mutex deadlock in drain() was invisible for want
+  // of exactly these five lines: begin() is loud at both its EXITS and silent
+  // in between, so a hang anywhere inside it looked identical to a gateway that
+  // was never plugged in. Raise the level for this tag to get them back.
+  ESP_LOGD(TAG, "bringup: uart configured");
+
   // The 328 is not reset by us opening the port -- it is flashed over ICSP and
   // has no bootloader on these pins -- so it may be mid-line from a previous
   // session. A bare CR closes whatever was half-typed.
-  //
-  // It may also still be STREAMING from before an ESP32 reset, in which case
-  // frames are arriving right now. That is harmless: the reader routes them to
-  // the sink, and command() waits on a queue frames never reach.
   writeLine("");
+  ESP_LOGD(TAG, "bringup: CR written");
   vTaskDelay(pdMS_TO_TICKS(50));
 
   if (reader_ == nullptr) {
     // Discard the ROM bootloader noise BEFORE the reader starts, so it never
     // sees it. On a retry the reader is already draining and this is skipped.
     drain();
+    ESP_LOGD(TAG, "bringup: drained");
 
     frameQ_ = xQueueCreate(AT328_FRAME_Q_DEPTH, sizeof(CanFrame));
     replyQ_ = xQueueCreate(AT328_REPLY_Q_DEPTH, sizeof(At328Reply));
@@ -353,6 +475,31 @@ LinkStatus At328Link::begin() {
     xQueueReset(replyQ_);
     xQueueReset(frameQ_);
   }
+
+  // SILENCE THE STREAM BEFORE CONFIGURING ANYTHING.
+  //
+  // It may still be streaming from before an ESP32 reset, in which case frames
+  // are arriving right now -- and the comment this replaces called that
+  // harmless, which it was only while both ends agreed on one shape. They no
+  // longer do: the format in force is now something this session NEGOTIATES, so
+  // an adapter left in AT@SM2 by an older build would have every line judged
+  // against the LAWICEL branch, fail it, and be filed as a command reply. At
+  // 151 frames/s that is replyQ_ -- eight slots -- overflowing continuously,
+  // and command()'s sixteen-line budget spent on frame lines before the answer
+  // to ATZ can reach it. A bring-up that fails on a working link.
+  //
+  // Through streamStop() rather than beside it, so there is ONE place that
+  // knows which commands stop a stream. It sends both levels -- they are
+  // mutually exclusive in the gateway and we do not know which one a previous
+  // session left running -- and ignores both answers: '?' from a 2.0 board means
+  // there was no stream to stop, which is the state we were asking for.
+  //
+  // ATZ below would also clear the level, but only once its own reply has been
+  // FOUND, and finding it is the thing this makes possible.
+  ESP_LOGD(TAG, "bringup: reader up, stopping any stream");
+  (void)streamStop();
+  drain();
+  ESP_LOGD(TAG, "bringup: stream stopped, sending ATZ");
 
   // ATZ resets the AT layer only; it deliberately does not re-initialise the
   // adapter's CAN controller, so this cannot disturb the car's VES announce.
@@ -379,61 +526,122 @@ LinkStatus At328Link::begin() {
 
   ready_ = true;
 
-  // Ask for the background frame stream, at the level setStreamLevel() chose.
-  // A 2.0 adapter has never heard of AT@SM and answers '?', which is NOT an
-  // error -- it means fall back to the ATMA alternation. Probing rather than
-  // assuming is what lets the two firmwares be flashed on separate trips to the
-  // radio.
+  // ---- negotiate the stream: LAWICEL, then ELM, then windows ----
   //
-  // No AT@ST parsing to discover the level: we are the side that declares it,
-  // and ATZ plus this command re-declare it on every bring-up, so an adapter
-  // left streaming by a previous session is re-stated rather than interrogated.
-  char sm[12];
-  snprintf(sm, sizeof(sm), "AT@SM%u", static_cast<unsigned>(streamLevelReq_));
-  streaming_ = (command(sm, AT328_CMD_TIMEOUT_MS) == LINK_OK);
+  // Asked for rather than assumed, and in that order, because each rung is a
+  // real adapter and the drop between them costs something specific. See
+  // setStreamFormat()'s comment for the ladder; what is here is the I/O.
+  //
+  // No AT@ST parsing to discover what the adapter is doing: we are the side that
+  // DECLARES it, and the silencing above plus ATZ plus this command re-declare
+  // it on every bring-up. Interrogating would mean parsing a status line to
+  // decide how to parse every line after it.
+  char cmdBuf[12];
+  const char* asked = "";
 
-  // A gateway that streams but has never heard of the STAMPED levels also
-  // answers '?'. Falling all the way back to the ATMA alternation there would
-  // trade the overlap of requests and broadcasts -- the thing that made this
-  // adapter worth a new firmware -- for a timestamp nothing yet consumes. So
-  // retry unstamped: level 1 is strictly better than windows.
-  if (streaming_) {
-    streamLevel_ = streamLevelReq_;
-  } else if (streamLevelReq_ > 1u) {
-    ESP_LOGW(TAG, "%s rejected: retrying unstamped at AT@SM1", sm);
-    streaming_ = (command("AT@SM1", AT328_CMD_TIMEOUT_MS) == LINK_OK);
-    streamLevel_ = streaming_ ? 1u : 0u;
+  if (wireReq_ == LINK_WIRE_LAWICEL) {
+    snprintf(cmdBuf, sizeof(cmdBuf), "AT@SML%u",
+             static_cast<unsigned>(streamLevelReq_));
+    if (command(cmdBuf, AT328_CMD_TIMEOUT_MS) == LINK_OK) {
+      wire_ = LINK_WIRE_LAWICEL;
+      streamLevel_ = streamLevelReq_;
+      asked = cmdBuf;
+    } else {
+      ESP_LOGW(TAG, "%s rejected: falling back to the ELM-shaped stream",
+               cmdBuf);
+    }
+  }
+
+  // The ELM rung, reached either because LAWICEL was refused or because a
+  // caller asked for it. Level 1 only: the stamped ELM levels are deliberately
+  // NOT tried, because their width cannot be checked against the line and a
+  // timestamp we cannot verify is worth less than none -- that asymmetry is the
+  // reason the LAWICEL rung is above this one at all.
+  if (wire_ == LINK_WIRE_NONE) {
+    if (command("AT@SM1", AT328_CMD_TIMEOUT_MS) == LINK_OK) {
+      wire_ = LINK_WIRE_ELM;
+      streamLevel_ = 1u;
+      asked = "AT@SM1";
+    }
+  }
+
+  streaming_ = (wire_ != LINK_WIRE_NONE);
+  if (!streaming_) {
+    streamLevel_ = 0u;
   }
   stampChars_ = stampCharsForLevel(streamLevel_);
+  streamClockInit(clock_, stampChars_);
 
   ESP_LOGI(TAG, "adapter ready on UART%d tx=%d rx=%d @%u",
            static_cast<int>(port_), txPin_, rxPin_,
            static_cast<unsigned>(baud_));
-  if (streaming_) {
-    ESP_LOGI(TAG, "AT@SM%u accepted: streaming, requests and broadcasts "
-                  "overlap, %u-char timestamp",
-             static_cast<unsigned>(streamLevel_),
-             static_cast<unsigned>(stampChars_));
+  if (wire_ == LINK_WIRE_LAWICEL) {
+    ESP_LOGI(TAG, "%s accepted: LAWICEL stream, requests and broadcasts "
+                  "overlap, %u-char rolling timestamp mapped onto our clock",
+             asked, static_cast<unsigned>(stampChars_));
+  } else if (wire_ == LINK_WIRE_ELM) {
+    ESP_LOGI(TAG, "%s accepted: ELM-shaped stream, requests and broadcasts "
+                  "overlap, no timestamps -- broadcast times are host receive "
+                  "times", asked);
   } else {
-    ESP_LOGI(TAG, "no AT@SM (adapter older than 2.1): falling back to ATMA "
-                  "windows");
+    ESP_LOGI(TAG, "no AT@SML and no AT@SM (adapter older than 2.1): falling "
+                  "back to ATMA windows");
   }
   return LINK_OK;
 }
 
-// 1..3 only. 0 is not offered here because it would turn the stream off by a
-// route that looks like configuration, and the way to run without the stream is
-// an adapter that refuses AT@SM. Anything else is a caller's mistake, and one
-// that would otherwise show up as a dead dashboard on a healthy link: the width
-// would not match what the adapter appends, so every frame line would fail the
+// AT@SML0, or AT@SM0 when the ELM fallback is what is running.
+//
+// Sends the one that matches, then the other, and ignores both answers. The
+// levels are mutually exclusive in the gateway, so the second command can only
+// ever be a no-op -- but "which one is running" is exactly the thing that is
+// unreliable when this is most needed (a bring-up against an adapter a previous
+// session configured), and one redundant command is cheaper than a stream left
+// running in a shape nobody is parsing.
+LinkStatus At328Link::streamStop() {
+  if (replyQ_ == nullptr) {
+    return LINK_NOT_READY;
+  }
+  const bool lawicelFirst = (wire_ != LINK_WIRE_ELM);
+  (void)command(lawicelFirst ? "AT@SML0" : "AT@SM0", AT328_CMD_TIMEOUT_MS);
+  (void)command(lawicelFirst ? "AT@SM0" : "AT@SML0", AT328_CMD_TIMEOUT_MS);
+  wire_ = LINK_WIRE_NONE;
+  streamLevel_ = 0u;
+  stampChars_ = LINK_LINE_TS_NONE;
+  streaming_ = false;
+  // The mapping belongs to a stream that is no longer running. Left standing it
+  // would be re-used against whatever the next stream's epoch turns out to be.
+  streamClockInit(clock_, LINK_LINE_TS_NONE);
+  haveStamp_ = false;
+  return LINK_OK;
+}
+
+// Levels 1..3 only. 0 is not offered here because it would turn the stream off
+// by a route that looks like configuration, and the way to run without the
+// stream is an adapter that refuses the command -- or streamStop(), which says
+// what it does. Anything else is a caller's mistake, and on the ELM path it is
+// one that would show up as a dead dashboard on a healthy link: the width would
+// not match what the adapter appends, so every frame line would fail the
 // classifier's length set and be filed as a command reply.
-void At328Link::setStreamLevel(uint8_t level) {
-  if (level < 1u || level > 3u) {
-    ESP_LOGE(TAG, "AT@SM level %u out of 1..3 -- ignored, staying at %u",
-             static_cast<unsigned>(level),
+//
+// LINK_WIRE_NONE is refused for the same reason as level 0. There is no "ask for
+// no stream" here.
+void At328Link::setStreamFormat(LinkWire w, uint8_t level) {
+  if (w != LINK_WIRE_LAWICEL && w != LINK_WIRE_ELM) {
+    ESP_LOGE(TAG, "stream wire %u is neither LAWICEL nor ELM -- ignored, "
+                  "staying at %u/%u", static_cast<unsigned>(w),
+             static_cast<unsigned>(wireReq_),
              static_cast<unsigned>(streamLevelReq_));
     return;
   }
+  if (level < 1u || level > 3u) {
+    ESP_LOGE(TAG, "stream level %u out of 1..3 -- ignored, staying at %u/%u",
+             static_cast<unsigned>(level),
+             static_cast<unsigned>(wireReq_),
+             static_cast<unsigned>(streamLevelReq_));
+    return;
+  }
+  wireReq_ = static_cast<uint8_t>(w);
   streamLevelReq_ = level;
 }
 
@@ -499,63 +707,6 @@ LinkStatus At328Link::sendFrame(const CanFrame& frame) {
 
   writeLine(line);
   return LINK_OK;
-}
-
-// With ATH1 + ATS0 a frame line is exactly three id nibbles followed by an even
-// number of data nibbles, no separators -- and then, at AT@SM2 or AT@SM3, a
-// fixed-width millisecond stamp with no separator before it either.
-//
-// `tsChars` is the CONFIGURED width. It is not measurable: there is no DLC on
-// this wire, so `3+2n` and `3+2n+4` overlap and the split has to be TOLD. It
-// must be the value linkClassifyLine() accepted this line with, which is why
-// the reader passes one copy to both.
-bool At328Link::parseFrameLine(const char* line, uint16_t len, uint8_t tsChars,
-                               CanFrame& out, uint32_t& stampMs) {
-  stampMs = 0u;
-  if (line == nullptr || len < static_cast<uint16_t>(3u + tsChars)) {
-    return false;
-  }
-  const uint16_t dataChars = static_cast<uint16_t>(len - 3u - tsChars);
-  if ((dataChars & 1u) != 0u || (dataChars / 2u) > CAN_MAX_DLC) {
-    return false;
-  }
-
-  uint16_t id = 0u;
-  for (uint8_t i = 0u; i < 3u; ++i) {
-    const int v = hexVal(line[i]);
-    if (v < 0) {
-      return false;
-    }
-    id = static_cast<uint16_t>((id << 4) | static_cast<uint16_t>(v));
-  }
-
-  out.id = id;
-  out.len = static_cast<uint8_t>(dataChars / 2u);
-  for (uint8_t i = 0u; i < out.len; ++i) {
-    const int hi = hexVal(line[3u + i * 2u]);
-    const int lo = hexVal(line[4u + i * 2u]);
-    if (hi < 0 || lo < 0) {
-      return false;
-    }
-    out.data[i] = static_cast<uint8_t>((hi << 4) | lo);
-  }
-  for (uint8_t i = out.len; i < CAN_MAX_DLC; ++i) {
-    out.data[i] = 0u;
-  }
-
-  // The stamp last, and a bad digit in it fails the whole frame rather than
-  // yielding a good frame with a garbage time on it -- the caller cannot tell
-  // those apart from a bool. The classifier has already scanned every character
-  // with the same accept set (hexVal's 0-9 A-F a-f), so this loop only ever
-  // fails on a line that never went through it.
-  for (uint8_t i = 0u; i < tsChars; ++i) {
-    const int v = hexVal(line[3u + dataChars + i]);
-    if (v < 0) {
-      return false;
-    }
-    stampMs = (stampMs << 4) | static_cast<uint32_t>(v);
-  }
-  return true;
 }
 
 LinkStatus At328Link::readFrame(CanFrame& out, uint32_t timeoutMs) {

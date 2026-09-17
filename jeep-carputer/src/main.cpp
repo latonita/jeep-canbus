@@ -32,16 +32,23 @@
 
 #include "Decoder.h"
 #include "IsoTp.h"
+#include "LinkHealth.h"
 #include "Kwp.h"
+#include "PollDecode.h"
 #include "PollScheduler.h"
 #include "SignalDb.h"
 #include "Broadcast.h"
+#include "Buttons.h"
+#include "esp_system.h"
+#include "BusCycle.h"
 #include "TpmsSignals.h"
 #include "Accel.h"
 #include "FaultStore.h"
+#include "FaultScan.h"
 #include "Faults.h"
 #include "Trip.h"
 #include "TripStore.h"
+#include "Snapshot.h"
 #include "VehicleState.h"
 
 static const char* TAG = "carputer";
@@ -82,6 +89,19 @@ static void requestFaultScan(void) {
   gFaultScanReq = true;
 }
 
+// The walk's timing and gating policy, lifted into core/FaultScan.h so it can
+// be host-tested. It is the rules that moved, not the work: the twelve ISO-TP
+// transactions, the logging and the mute/clear handling all stay here, because
+// they are I/O and this is the task that owns the link.
+//
+// Worth saying why it was worth moving. The rules are short, and every one of
+// them is a decision that is wrong in a way no amount of reading catches:
+// whether the deadline comparison survives the 49-day wrap, whether a walk cut
+// short by the link dropping is owed again immediately or in five minutes,
+// whether a RE-READ arriving mid-walk restarts it or is dropped. Those were
+// three comments and no tests; they are now 167 checks.
+static FaultScanPlan gFaultPlan;
+
 // The scan also starts itself: once as soon as the link is up, and then every
 // five minutes.
 //
@@ -91,21 +111,30 @@ static void requestFaultScan(void) {
 // up, when the answer is about to be obtainable. Waiting for gLinkUp is what
 // makes "read once when the link is established" and "read again every five
 // minutes" the same piece of code.
-#define FAULT_SCAN_PERIOD_MS (5u * 60u * 1000u)
-
-// When the next automatic scan is owed, compared SIGNED against nowMs() so 0
-// means "as soon as the link allows" and the 49-day wrap needs no special case.
-// Written only by the completion paths in faultScanStep(), on carTask.
-static uint32_t gFaultScanDueMs = 0u;
+//
+// FAULT_SCAN_PERIOD_MS and the deadline itself live in core/FaultScan.h now,
+// with the wrap-safe comparison that reads it.
 
 // Which fault the driver asked to mute, by list index. 0xFF is "nothing".
 // A request rather than a direct call for the same reason as everything else
 // here: carTask owns gFaults, and the mute is committed to flash, which the
 // LVGL task must never do.
-static volatile uint8_t gFaultMuteReq = 0xFFu;
+// By (ecu, code), the same shape as the clear below and for a weaker version
+// of the same reason.
+//
+// It used to be a list index. A scan finishing between the tap and this being
+// consumed re-sorts the list, and an index then names a different fault -- and
+// since the renderer reads a published snapshot it can be looking at an order
+// one carTask pass old on top of that. Muting the wrong row is undone by
+// tapping the right one, so this was never the mistake CLEAR guards against;
+// it is just not worth having two request shapes where one of them can be
+// wrong. 0xFF ecu is "nothing asked".
+static volatile uint8_t  gFaultMuteEcu = 0xFFu;
+static volatile uint16_t gFaultMuteCode = 0u;
 
-static void requestFaultMute(uint8_t index) {
-  gFaultMuteReq = index;
+static void requestFaultMute(uint8_t ecu, uint16_t code) {
+  gFaultMuteCode = code;
+  gFaultMuteEcu = ecu;      // LAST, so the pair is complete when it is seen
 }
 
 // Which fault the driver asked to ERASE from its module, by (ecu, code).
@@ -130,9 +159,42 @@ static const PollItem kPlan[] = {
     // voltage, odometer and ignition all arrive free on the bus and are read
     // in the monitor window instead -- polling them would spend a transaction
     // to get a slower copy of something already in hand.
-    {ECU_CCN, 0x2103u, 5000u},   // fuel level %      -- not broadcast
-    {ECU_CCN, 0x213Fu, 5000u},   // warning lamps     -- not broadcast
-    {ECU_CCN, 0x2135u, 10000u},  // fluid-low flags   -- not broadcast
+    // FUEL LEVEL IS GONE FROM THIS PLAN. It was `{ECU_CCN, 0x2103u, 5000u}`
+    // with the comment "-- not broadcast", and that comment was simply wrong:
+    // 0x159 b5 carries the tank level on the bus about once a second, so the
+    // poll was spending a transaction every five seconds to fetch a slower copy
+    // of something already arriving free. Removed on the owner's instruction
+    // and in line with the rule the rest of this plan is written to.
+    //
+    // It also made the BENCH lie. A polled value can only ever come back as
+    // whatever emulate-car.py holds in `self.fuel_pct` (62.0, hard-coded), so
+    // the panel round-tripped the emulator's own constant through our scaling
+    // and looked like it was reading a tank. Off the broadcast it reads the
+    // real capture instead.
+    // 22 s and 30 s, on the owner's instruction -- they were 5 s and 10 s.
+    //
+    // Both are SLOW BOOLEANS and neither is on the glass. 0x213F carries the
+    // ABS, MIL, oil and charging lamp requests; 0x2135 the washer, coolant and
+    // brake fluid-low flags. A lamp that comes on stays on, and a reservoir
+    // does not empty between two glances -- so the only thing the old rates
+    // bought was noticing a latched flag fifteen seconds sooner, at a cost of
+    // one transaction every five.
+    //
+    // It is the same argument that took the tyres from 5 s to a minute: this is
+    // an 83.3 kbps bus the radio and cluster depend on, and every request here
+    // crosses a UART to an ATmega328 first.
+    //
+    // NO TTL MOVES WITH THESE, and that is worth stating because it is the trap
+    // the tyre change had to solve. UI_TYRE_TTL_MS exists because the tyre
+    // page DIMS a reading past its age, so a rate change without it would dim a
+    // value as fresh as it will ever be. Neither of these reaches Snapshot at
+    // all -- the lamp pills are drawn but not driven -- so there is nothing
+    // downstream judging their age.
+    //
+    // Both fit `PollItem::periodMs`, which is a uint16_t: 65535 ms is the
+    // longest period this plan can express at all.
+    {ECU_CCN, 0x213Fu, 22000u},  // ABS / MIL / oil / charge lamps -- not broadcast
+    {ECU_CCN, 0x2135u, 30000u},  // washer / coolant / brake low   -- not broadcast
     // Tyre pressure once a MINUTE, on the owner's instruction -- it was every
     // 5 s. Nothing is lost: a tyre loses pressure over days, the sensors
     // themselves only transmit every 60 s or so parked and every ~15 s rolling,
@@ -148,10 +210,14 @@ static const PollItem kPlan[] = {
     // a minute for a value that reads ~0.5 bar and is excluded from the low
     // warning anyway.
     //
-    // Both TTLs in Ui.cpp are tied to these numbers -- UI_TYRE_TTL_MS and
+    // Both TTLs are tied to these numbers -- UI_TYRE_TTL_MS and
     // UI_SPARE_TTL_MS, twice the poll interval each. Change a rate here and
     // change the TTL there, or the page dims a reading that is as fresh as it
-    // is ever going to be.
+    // is ever going to be. They live in core/Snapshot.h now, which is at least
+    // somewhere a host test can check them: test_snapshot asserts a corner
+    // 90 s old still reads FRESH. The coupling is still manual -- this is a
+    // uint16_t table of periods and that header is a set of #defines, with no
+    // expression that could tie one to the other -- so it is still two edits.
     {ECU_WCM, TPMS_ROAD_WHEELS_PID, 60000u},  // tyre pressures -- request-only
     {ECU_WCM, TPMS_SPARE_PID, 60000u},        // the spare      -- own request
 };
@@ -213,6 +279,17 @@ static void logDecoded(const SignalDef& def, const DecodedValue& v) {
   }
 }
 
+// What the fan-out calls back with, per signal.
+//
+// This is the reason pollDecodeResponse() takes a sink at all: the decode is
+// pure and the logging is not, and logging every value as it lands is worth
+// keeping -- it is how a signal definition that disagrees with a module gets
+// noticed. A failed decode is logged too, through the same path it always was.
+static void pollLogSink(const SignalDef& def, const DecodedValue& v, bool ok) {
+  (void)ok;
+  logDecoded(def, v);
+}
+
 // One request, then decode every signal that lives in its response.
 static bool pollOne(const PollItem& item) {
   if (item.ecu >= ECU_COUNT) {
@@ -251,31 +328,11 @@ static bool pollOne(const PollItem& item) {
     return false;
   }
 
-  const uint32_t t = nowMs();
-  uint8_t decoded = 0u;
-  // Two tables: the generated one, and the hand-written TPMS defs that the
-  // vendor database does not contain.
-  const SignalDef* tables[2] = {kSignals, kTpmsSignals};
-  const uint16_t counts[2] = {kSignalCount, kTpmsSignalCount};
-  for (uint8_t tbl = 0u; tbl < 2u; ++tbl)
-  for (uint16_t i = 0u; i < counts[tbl]; ++i) {
-    const SignalDef& def = tables[tbl][i];
-    if (def.ecu != item.ecu || def.localId != item.localId) {
-      continue;
-    }
-    const int8_t slot = gState.indexOf(&def);
-    if (slot < 0) {
-      continue;
-    }
-    DecodedValue v;
-    if (decodeSignal(def, pdu, v) == DECODE_OK && v.valid) {
-      gState.publish(slot, v.value, v.raw, v.label, t);
-      ++decoded;
-    } else {
-      gState.noteError(slot);
-    }
-    logDecoded(def, v);
-  }
+  // The fan-out -- find every signal defined against this PID across BOTH
+  // tables, decode it, publish it -- is core/PollDecode.h. Everything above
+  // this line is the transaction, which is the only part that needs a link.
+  const uint8_t decoded = pollDecodeResponse(item.ecu, item.localId, pdu, gState,
+                                             nowMs(), pollLogSink);
   return decoded != 0u;
 }
 
@@ -359,8 +416,34 @@ static void readDtcs(EcuId which) {
 // heard for five seconds the panel goes to 100% rather than staying dark.
 #define BACKLIGHT_SIGNAL_TTL_MS 5000u
 
-static void applyBacklight(uint32_t now) {
-  static uint16_t applied = 0xFFFFu;
+// Two callers, on two tasks -- so TWO LATCHES, one owned by each.
+//
+// The latch exists only to suppress a redundant LEDC write, and it used to be
+// a single function-local static shared by both callers. That is a lost
+// update: carTask writes `applied = old`, the higher-priority reader task
+// preempts it with a newer dimmer frame, computes and writes `new`, and then
+// carTask resumes and writes `old` over the top. The panel ends one step stale
+// with the latch claiming otherwise.
+//
+// It self-heals -- carTask recomputes from the current gBcast every pass, so
+// the next pass sees `pm != applied` and corrects it within 20 ms streaming or
+// 700 ms on ATMA. That is why this was a blemish rather than a bug. But a
+// correctness argument that rests on "something else fixes it shortly" is the
+// kind that stops being true when the loop changes.
+//
+// Giving each task its own latch removes the sharing instead of guarding it.
+// No lock, and in particular no LEDC call inside a critical section -- which
+// is what a lock here would have meant, since the compare and the write have
+// to be atomic together for a shared latch to work. The cost is that both
+// tasks may write the same duty once on the same change, which is two register
+// writes on a path that runs a few times a second when a driver is turning the
+// wheel. `whose` selects the latch; it does not change the decision.
+#define BACKLIGHT_OWNER_CAR    0u
+#define BACKLIGHT_OWNER_READER 1u
+
+static void applyBacklight(uint32_t now, uint8_t whose) {
+  // Each index is touched by exactly one task, so neither needs protecting.
+  static uint16_t applied[2] = {0xFFFFu, 0xFFFFu};
   const bool have = (gBcast.dimmerMs != 0u) &&
                     ((now - gBcast.dimmerMs) < BACKLIGHT_SIGNAL_TTL_MS);
   // 0x1C8 broadcasts at about 2 Hz, so the same 5 s window is generous.
@@ -368,27 +451,38 @@ static void applyBacklight(uint32_t now) {
                           ((now - gBcast.lightsMs) < BACKLIGHT_SIGNAL_TTL_MS);
   const uint16_t pm = broadcastBacklightPermille(gBcast.dimmerRaw, have,
                                                  gBcast.lightsOn, haveLights);
-  if (pm == applied) {
+  if (pm == applied[whose]) {
     return;
   }
-  applied = pm;
+  applied[whose] = pm;
   (void)displayBacklightPermille(pm);
-  // Every input to the decision, because 0x210 byte 1 reads 0x00 both at the
-  // bottom of the wheel and with the lights off, and only this line can say
-  // which case the panel just acted on.
-  ESP_LOGI(TAG, "backlight %u.%u%% (0x210 %02X %02X, 0x1C8 %02X %s, lights %s)",
-           pm / 10u, pm % 10u, gBcast.dimmerByte0, gBcast.dimmerRaw,
-           gBcast.lightsRaw, haveLights ? "live" : "absent",
-           gBcast.lightsOn ? "ON" : "OFF");
+
+  // CARTASK ONLY, and that is the fix for a second finding rather than a
+  // stylistic choice. USB-Serial-JTAG blocks until the host drains it, so
+  // logging from the link reader stops the UART being read -- and At328Link
+  // documents only ~1.2 s of buffer before the 328 back-pressures and the
+  // MCP2515 starts dropping frames on the car side, uncounted. (It was 1.6 s;
+  // the stamped LAWICEL line is six bytes longer than the ELM one it replaced,
+  // which took the stream from 22 % of the link to 30 % and a quarter off the
+  // cover the same 4096 bytes buy.) A brightness change is exactly when a bench
+  // user has a monitor attached.
+  //
+  // Nothing is lost by moving it: carTask recomputes every pass, so a change
+  // the reader applied first is still logged within one pass. Every input is
+  // printed because 0x210 byte 1 reads 0x00 both at the bottom of the wheel
+  // and with the lights off, and only this line can say which case the panel
+  // just acted on.
+  if (whose == BACKLIGHT_OWNER_CAR) {
+    ESP_LOGI(TAG, "backlight %u.%u%% (0x210 %02X %02X, 0x1C8 %02X %s, lights %s)",
+             pm / 10u, pm % 10u, gBcast.dimmerByte0, gBcast.dimmerRaw,
+             gBcast.lightsRaw, haveLights ? "live" : "absent",
+             gBcast.lightsOn ? "ON" : "OFF");
+  }
 }
 
-// How long to sit in ATMA before dropping out to run requests. Long enough that
-// the 50 ms signals arrive several times over, short enough that a 5 s poll
-// period is still comfortably met.
-//
-// ONLY used against an adapter older than 2.1. With AT@SM the frames arrive
-// continuously on the link's reader task and there is no window at all.
-#define MONITOR_WINDOW_MS 700u
+// The listen window, the streaming pace, the poll-only fallback and the
+// requests-per-pass bound all live in core/BusCycle.h now, with the reasoning
+// that ties each number to a signal rate on the bus.
 
 // Every broadcast frame, delivered from the link's reader task the moment its
 // line is parsed.
@@ -403,12 +497,62 @@ static void applyBacklight(uint32_t now) {
 // be a race on accumulated state that no amount of dropped-frame tolerance
 // makes acceptable. carTask samples gBcast every 20 ms instead, which is
 // faster than the quickest broadcast on the bus (0x002 at 20 Hz).
+// Debounced page buttons. SINGLE WRITER: only onBroadcastFrame() touches this,
+// on the link reader task, exactly as gBcast itself is.
+// HOW LONG A FROZEN SCREEN IS ALLOWED TO LAST.
+//
+// 2000 and not 1000, and the difference is a legitimate operation rather than
+// caution: a theme swap or an orientation flip DELETES AND REBUILDS the whole
+// seven-page tree while holding lvgl_port_lock, and uiTask cannot beat until it
+// finishes. Rebooting the instrument in the middle of a rebuild the driver just
+// asked for would be a worse fault than the freeze this guards against.
+//
+// carTask comes round every ~20 ms in the bus loop, so detection is prompt once
+// the window expires; the window is the whole latency. Tighten it here if a
+// rebuild is ever measured well under a second.
+#define UI_WATCHDOG_MS 2000u
+
+static ButtonState gButtons;
+
+// THE FIRST BUTTON PRESS EVER SEEN, recorded here for carTask to print.
+//
+// 0x394 b3 is 0x00 in ALL 5510 frames of it across every capture in this repo --
+// nobody has ever pressed one of these buttons while logging -- so the bit
+// assignment (bit 2 fast-forward, bit 3 rewind) is the owner's word, and not
+// something any data here confirms. Neither is the BYTE: the map says the bits
+// live in b4 and the owner says b3, and since b3 and b4 are both constant zero
+// in every captured frame, no log in this repo can settle which is right.
+//
+// The REPORT RATE question this was first written to answer is settled: the
+// owner checked the real head unit and it sends on press and again on release.
+// What is left is the assignment itself, and one press in the car prints it.
+//
+// Recorded on the link reader but PRINTED from carTask: ESP_LOGx blocks until
+// the USB-JTAG host drains, and a stall on the reader costs frames.
+static volatile uint8_t gBtnSeen = 0u;
+static volatile uint32_t gBtnSeenMs = 0u;
+
 static void onBroadcastFrame(const CanFrame& f, uint32_t t) {
   if (broadcastApply(gBcast, f, t) && f.id == 0x210u) {
     // Apply brightness the instant the dimmer frame lands. Deferring it to the
     // end of the loop added up to two seconds of lag to a control the driver is
     // actively turning, which reads as the screen ignoring them.
-    applyBacklight(t);
+    applyBacklight(t, BACKLIGHT_OWNER_READER);
+  }
+  // Acted on HERE and not in carTask, for the same reason the backlight is:
+  // carTask comes round a loop containing a 700 ms monitor window, so a page
+  // that turns up to two thirds of a second after the thumb moved reads as the
+  // button not having worked. uiPageStep() only accumulates one byte, so it is
+  // safe to call from this task.
+  if (f.id == 0x394u) {
+    if (gBcast.btnRaw != 0u) {
+      gBtnSeen = gBcast.btnRaw;
+      gBtnSeenMs = t;
+    }
+    const int8_t step = buttonsStep(gButtons, gBcast.btnRaw, t);
+    if (step != 0) {
+      uiPageStep(step);
+    }
   }
 
   // Acceleration timing IS fed from here, unlike the trips two paragraphs up.
@@ -443,17 +587,68 @@ static void onBroadcastFrame(const CanFrame& f, uint32_t t) {
 // that has to last the life of the car.
 #define TRIP_SAVE_INTERVAL_MS 60000u
 
-// No line of any kind off the adapter for this long and we stop believing it
-// is there. Generous against the worst legitimate quiet: in the ATMA fallback
-// the adapter goes silent for the whole poll burst, bounded by three polls at
-// 400 ms plus the window, so about 2 s. 3 s clears that with room.
-#define LINK_QUIET_MS 3000u
-
-// Minimum spacing between liveness probes, so a genuinely dead link is not
-// hammered with AT@ST once per loop.
-#define LINK_PROBE_MS 3000u
+// LINK_QUIET_MS and LINK_PROBE_MS moved to core/LinkHealth.h, with the
+// wrap-safe comparisons that read them and with their reasoning. They were
+// still defined here as well for a while, token-identically, which is why
+// nothing warned -- and which is exactly the shape of the bug that keeping one
+// definition is meant to prevent: the day one copy is tuned and the other is
+// not, the tests agree with the wrong one.
 
 static bool gLinkUp = false;
+
+// ---------------------------------------------------------------------------
+// PUBLISHING THE SNAPSHOT -- the one place vehicle state crosses to the screen.
+//
+// It used to cross as five raw pointers handed to the renderer at startup,
+// which meant the UI task read structures that this task and the link reader
+// were still mutating. Mostly that was benign: every field is four bytes or
+// fewer and naturally aligned, so a torn VALUE was never the risk. Two things
+// were real, though.
+//
+//   * A torn STRUCTURE. faultsEndScan() insertion-sorts the fault list while
+//     the drill-down is walking it, so a row could be drawn twice or skipped
+//     altogether -- not a wrong number, but a wrong LIST, on the page whose
+//     whole job is saying what is wrong.
+//   * Nothing agreed about "now". Each readout sampled the clock in its own
+//     refresh function, so two numbers in the same frame could be judged
+//     against different instants, and a value could be fresh for one and stale
+//     for the next.
+//
+// So the crossing is now explicit, in one direction, through one structure,
+// under a spinlock. A spinlock rather than a mutex because both sides are
+// short and neither may sleep here: the writer is a task that must get back to
+// the UART, and the reader is the LVGL task at the top of a frame. ~650 bytes
+// is a couple of microseconds, which is far less than either side would lose
+// blocking.
+//
+// gSnapLock protects gSnapLive and nothing else. Do NOT reach for it to guard
+// gBcast or gFaults themselves -- those keep their single-writer discipline,
+// and a lock around the READ of a structure that is written unlocked would buy
+// nothing while looking like it bought something.
+static portMUX_TYPE gSnapLock = portMUX_INITIALIZER_UNLOCKED;
+static Snapshot gSnapLive;
+static SnapshotSource gSnapSrc;
+static SnapshotSlots gSnapSlots;
+
+// Called from carTask. Builds OUTSIDE the lock and copies in, so the lock is
+// held for a memcpy rather than for the whole resolve -- which reads the
+// VehicleState, the trips and the fault list and is much the longer half.
+static void publishSnapshot(uint32_t now) {
+  static Snapshot staging;
+  snapshotBuild(staging, gSnapSrc, gSnapSlots, gBcast, gTrips, gAccel, gFaults,
+                &gState, gLinkUp, now);
+  portENTER_CRITICAL(&gSnapLock);
+  gSnapLive = staging;
+  portEXIT_CRITICAL(&gSnapLock);
+}
+
+// Called from the LVGL task, once per frame. The renderer's own copy is its
+// private memory; this only has to get it out from under the writer.
+static void readSnapshot(Snapshot& out) {
+  portENTER_CRITICAL(&gSnapLock);
+  out = gSnapLive;
+  portEXIT_CRITICAL(&gSnapLock);
+}
 
 // Asks the adapter who it is and hands the answer to the SETTINGS info block.
 // Called after bring-up and again whenever the link comes back, because the
@@ -478,7 +673,18 @@ static void reportLinkIdentity(void) {
       adapter[n] = '\0';
     }
   }
-  uiSetLinkInfo(gLink.streaming() ? "STREAM" : "ATMA", adapter);
+  // THREE modes, not two, because the difference between the first two is
+  // visible in the numbers rather than only in a log line: under SLCAN the trip
+  // and acceleration figures are timed by the GATEWAY's clock, and under STREAM
+  // they are timed by ours. When a figure looks wrong, which of those was in
+  // force is the first thing worth knowing -- so the row says which.
+  const char* mode = "ATMA";
+  if (gLink.wire() == LINK_WIRE_LAWICEL) {
+    mode = "SLCAN";
+  } else if (gLink.wire() == LINK_WIRE_ELM) {
+    mode = "STREAM";
+  }
+  uiSetLinkInfo(mode, adapter);
 }
 
 static void setLinkUp(bool up) {
@@ -499,30 +705,40 @@ static void setLinkUp(bool up) {
 // the real signal, and the probe is what tells "quiet bus" apart from "no
 // adapter": a bench with no car produces no frames at all, and that must not
 // read as a dead link.
-static void linkWatchdog(uint32_t now) {
-  static uint32_t lastProbe = 0u;
+// LINK_QUIET_MS, LINK_PROBE_MS and the decision itself are in
+// core/LinkHealth.h. What is left here is the two things that cannot be pure:
+// sending AT@ST, and calling begin() to recover.
+//
+// Note what moving it FIXED, which is the argument for having moved it. The
+// probe spacing used to be a function-local `static uint32_t lastProbe = 0u`,
+// so `now - lastProbe < LINK_PROBE_MS` was true for the first three seconds of
+// uptime and a missing adapter could not be reported in that window. That
+// grace period was an accident of zero-initialisation, not a decision -- and
+// it came back round for real at the far end of the 49-day clock. The host
+// tests name it; nothing in the old shape could.
+static LinkHealth gLinkHealth;
 
-  if (gLink.lastRxMs() != 0u && (now - gLink.lastRxMs()) < LINK_QUIET_MS) {
-    setLinkUp(true);
+static void linkWatchdog(uint32_t now) {
+  if (linkHealthStep(gLinkHealth, gLink.lastRxMs(), now) != LH_PROBE) {
+    setLinkUp(gLinkHealth.up);
     return;
   }
-  if ((now - lastProbe) < LINK_PROBE_MS) {
-    return;
-  }
-  lastProbe = now;
 
   char st[96];
   if (gLink.status(st, sizeof(st)) == LINK_OK) {
+    linkHealthNoteProbe(gLinkHealth, true, nowMs());
     setLinkUp(true);          // quiet bus, live adapter
     return;
   }
 
+  linkHealthNoteProbe(gLinkHealth, false, nowMs());
   setLinkUp(false);
   // Try to bring it back rather than waiting for a reboot. begin() is bounded
   // and safe to repeat; it reuses the existing reader task and re-probes
   // AT@SM, so a reconnect restores streaming on its own.
   if (gLink.begin() == LINK_OK) {
     reportLinkIdentity();
+    linkHealthNoteProbe(gLinkHealth, true, nowMs());
     setLinkUp(true);
   }
 }
@@ -567,14 +783,8 @@ static void faultClearIfAsked(void) {
   if (ecu >= ECU_COUNT) {
     return;
   }
-  // Find it by (ecu, code). It may have moved, or be gone already.
-  uint8_t idx = 0xFFu;
-  for (uint8_t i = 0u; i < gFaults.count; ++i) {
-    if (gFaults.f[i].ecu == ecu && gFaults.f[i].code == code) {
-      idx = i;
-      break;
-    }
-  }
+  // It may have moved since the tap, or be gone already.
+  const uint8_t idx = faultsFind(gFaults, ecu, code);
   char sae[8];
   if (!kwpDtcToSae(code, sae, sizeof(sae))) {
     snprintf(sae, sizeof(sae), "%04X", (unsigned)code);
@@ -616,45 +826,56 @@ static void faultClearIfAsked(void) {
 }
 
 static void faultScanStep(void) {
-  // Self-starting, gated on the link. The due stamp is moved only by the
-  // completion paths below, so a walk cut short by the link dropping is owed
-  // again the moment the link returns rather than five minutes later.
-  if (gLinkUp && !faultsScanning(gFaults) &&
-      (int32_t)(nowMs() - gFaultScanDueMs) >= 0) {
-    gFaultScanReq = true;
-  }
-
-  // A request only takes effect between walks. Restarting one mid-flight would
-  // throw away the modules already asked and re-ask them, which from the
-  // driver's side looks like the scan going backwards.
-  if (gFaultScanReq && !faultsScanning(gFaults)) {
+  // Hand the LVGL task's request over to the plan, then let the plan say what
+  // this pass should do. Nothing about WHEN is decided here any more.
+  if (gFaultScanReq) {
     gFaultScanReq = false;
-    faultsBeginScan(gFaults, ECU_COUNT);
-    ESP_LOGI(TAG, "dtc scan requested: walking %u modules", (unsigned)ECU_COUNT);
+    faultScanRequest(gFaultPlan);
   }
 
-  const uint8_t muteReq = gFaultMuteReq;
-  if (muteReq != 0xFFu) {
-    gFaultMuteReq = 0xFFu;
-    if (faultsMuteFull(gFaults) && !gFaults.f[muteReq].muted) {
+  const uint8_t muteEcu = gFaultMuteEcu;
+  if (muteEcu != 0xFFu) {
+    const uint16_t muteCode = gFaultMuteCode;
+    gFaultMuteEcu = 0xFFu;
+
+    // It may have moved since the tap, or be gone.
+    const uint8_t muteIdx = faultsFind(gFaults, muteEcu, muteCode);
+    if (muteIdx == 0xFFu) {
+      ESP_LOGW(TAG, "mute %04X: no longer in the list", (unsigned)muteCode);
+    } else if (faultsMuteFull(gFaults) && !gFaults.f[muteIdx].muted) {
       ESP_LOGW(TAG, "mute list full (%u)", (unsigned)FAULT_MUTE_MAX);
     } else {
-      const bool now = faultsToggleMute(gFaults, muteReq);
+      const bool now = faultsToggleMute(gFaults, muteIdx);
       faultStoreSaveMutes(gFaults);
-      ESP_LOGI(TAG, "fault %u %s", (unsigned)muteReq,
+      ESP_LOGI(TAG, "fault %04X %s", (unsigned)muteCode,
                now ? "muted" : "un-muted");
     }
   }
 
   faultClearIfAsked();
 
-  const uint8_t ecuIdx = faultsNextEcu(gFaults);
-  if (ecuIdx == 0xFFu) {
+  // ONE act per pass, decided in core/. FSCAN_BEGIN deliberately does not
+  // consume the pass -- beginning and then asking module 0 in the same call is
+  // what the old straight-line code did, and the driver would notice a pass
+  // spent doing nothing but starting.
+  uint8_t ecuIdx = 0u;
+  FaultScanAct act = faultScanDecide(gFaultPlan, gLinkUp, faultsScanning(gFaults),
+                                     faultsNextEcu(gFaults), ECU_COUNT, nowMs(),
+                                     ecuIdx);
+  if (act == FSCAN_BEGIN) {
+    faultsBeginScan(gFaults, ECU_COUNT);
+    ESP_LOGI(TAG, "dtc scan requested: walking %u modules", (unsigned)ECU_COUNT);
+    act = faultScanDecide(gFaultPlan, gLinkUp, faultsScanning(gFaults),
+                          faultsNextEcu(gFaults), ECU_COUNT, nowMs(), ecuIdx);
+  }
+
+  if (act == FSCAN_NOTHING) {
     return;
   }
-  if (ecuIdx >= ECU_COUNT) {
+
+  if (act == FSCAN_FINISH) {
     faultsEndScan(gFaults, nowMs());
-    gFaultScanDueMs = nowMs() + FAULT_SCAN_PERIOD_MS;
+    faultScanNoteFinished(gFaultPlan, false, nowMs());
     return;
   }
 
@@ -662,13 +883,14 @@ static void faultScanStep(void) {
   // twelve 800 ms timeouts for an answer we already know, and this runs inside
   // the bring-up retry loop where that would delay reconnecting. The scan still
   // completes and still reports honestly -- every module quiet, nothing found.
-  if (!gLinkUp) {
+  if (act == FSCAN_SKIP) {
     faultsEcuFailed(gFaults, ecuIdx);
     if (!faultsScanning(gFaults)) {
       faultsEndScan(gFaults, nowMs());
-      // Owed immediately, not in five minutes: this walk answered nothing, and
-      // the gate above holds it off until the link is actually back anyway.
-      gFaultScanDueMs = nowMs();
+      // `answeredNothing` -- owed again IMMEDIATELY rather than in five
+      // minutes. This walk asked nothing, and the link gate holds it off until
+      // the link is actually back anyway.
+      faultScanNoteFinished(gFaultPlan, true, nowMs());
       ESP_LOGW(TAG, "dtc scan abandoned: link down");
     }
     return;
@@ -709,7 +931,7 @@ static void faultScanStep(void) {
 
   if (!faultsScanning(gFaults)) {
     faultsEndScan(gFaults, nowMs());
-    gFaultScanDueMs = nowMs() + FAULT_SCAN_PERIOD_MS;
+    faultScanNoteFinished(gFaultPlan, false, nowMs());
     ESP_LOGI(TAG, "dtc scan done: %u stored, %u modules answered, %u quiet%s",
              (unsigned)gFaults.count, (unsigned)faultsAnsweredCount(gFaults),
              (unsigned)faultsUnreachableCount(gFaults),
@@ -756,6 +978,11 @@ static void tripHousekeeping(void) {
 }
 
 static void carTask(void*) {
+  // Announced before anything can block, so "the task never started" and "the
+  // task is stuck in begin()" are told apart from the console alone. They look
+  // identical otherwise, and both look like a missing gateway.
+  ESP_LOGI(TAG, "car task up");
+
   // Before begin(), so the reader task has somewhere to put frames from its
   // very first line.
   gLink.setFrameSink(onBroadcastFrame);
@@ -777,7 +1004,7 @@ static void carTask(void*) {
       // Also here, for the reason above: a tap on FAULTS while the link is
       // down must not sit unanswered until the link happens to come back.
       faultScanStep();
-      applyBacklight(nowMs());
+      applyBacklight(nowMs(), BACKLIGHT_OWNER_CAR);
       vTaskDelay(pdMS_TO_TICKS(100));
     }
   }
@@ -804,51 +1031,99 @@ static void carTask(void*) {
   }
 
   broadcastClear(gBcast);
+  buttonsInit(gButtons);
 
   // Monitoring and requesting cannot overlap -- ATMA streams until a character
   // arrives and the adapter accepts no commands meanwhile -- so the loop
   // alternates: listen for a window, then spend a few requests on what
   // listening cannot provide.
-  uint32_t loopStart = nowMs();
-  uint32_t loopWorst = 0u;
-  uint32_t loopReport = nowMs();
+  BusLoopStats loop;
+  busLoopInit(loop, nowMs());
 
   for (;;) {
-    const uint32_t period = nowMs() - loopStart;
-    loopStart = nowMs();
-    if (period > loopWorst) {
-      loopWorst = period;
-    }
-    if (nowMs() - loopReport > 10000u) {
-      loopReport = nowMs();
+    if (busLoopTick(loop, nowMs())) {
       ESP_LOGI(TAG, "loop %ums (worst %ums)  frames=%u decoded=%u",
-               (unsigned)period, (unsigned)loopWorst,
+               (unsigned)loop.periodMs, (unsigned)loop.reportedWorstMs,
                (unsigned)gBcast.frames, (unsigned)gBcast.decoded);
-      loopWorst = 0u;
     }
 
-    if (gLink.streaming()) {
-      // 2.1 adapter: frames are arriving continuously on the reader task and
-      // reaching onBroadcastFrame() without this loop's help. All this delay
-      // does is pace the loop fast enough that tripUpdate() below never misses
-      // a broadcast stamp -- 20 ms against 0x002's 50 ms, the quickest on the
-      // bus.
-      vTaskDelay(pdMS_TO_TICKS(20));
-    } else if (gLink.monitorBegin() == LINK_OK) {
-      // Older adapter: monitoring and requesting cannot overlap, so listen for
-      // a window and go deaf for the poll burst. Frames still arrive through
-      // the same sink -- the window only decides when the adapter is willing
-      // to send them.
-      vTaskDelay(pdMS_TO_TICKS(MONITOR_WINDOW_MS));
+    // What to do about listening, decided in core/BusCycle.h. The I/O stays
+    // here: only this side can try monitorBegin(), and trying it is the only
+    // way to find out whether it works.
+    //
+    // Order matters and the decision encodes it -- streaming is asked FIRST
+    // and monitorBegin() is not even attempted in that case, because ATMA
+    // would make a 2.1 adapter deaf to the requests below in exchange for
+    // frames already arriving.
+    const bool streaming = gLink.streaming();
+    const bool monitorOk = !streaming && (gLink.monitorBegin() == LINK_OK);
+    const BusListenPlan plan = busListenDecide(streaming, monitorOk);
+    vTaskDelay(pdMS_TO_TICKS(plan.delayMs));
+    if (plan.mode == BUS_LISTEN_MONITOR) {
       gLink.monitorEnd();
-    } else {
-      // No monitor mode (bench link, or the adapter refused): fall back to
-      // polling alone rather than stalling.
-      vTaskDelay(pdMS_TO_TICKS(50));
     }
 
     linkWatchdog(nowMs());
-    applyBacklight(nowMs());   // also covers the failsafe when 0x210 goes silent
+    applyBacklight(nowMs(), BACKLIGHT_OWNER_CAR);   // also the failsafe when 0x210 goes quiet
+
+    // Publish one resolved frame for the screen.
+    //
+    // HERE rather than from the renderer's own tick, because this is the task
+    // that owns every input the snapshot reads. The UI pulls a copy whenever it
+    // happens to draw; it never reaches into vehicle state to build one, which
+    // is the whole direction of the boundary.
+    publishSnapshot(nowMs());
+
+    // ---- RENDERER WATCHDOG -------------------------------------------------
+    //
+    // Reboot if the UI stops refreshing. This is the SECOND of two watchdogs
+    // and it catches what the first cannot.
+    //
+    // The ESP task watchdog (now set to panic rather than merely log) catches a
+    // task that STARVES the idle tasks -- a busy loop, which is what
+    // LV_ASSERT_MALLOC's bare while(1) is. That is the freeze we actually hit.
+    //
+    // This one catches the opposite shape: anything that leaves the renderer
+    // BLOCKED rather than spinning -- a deadlock on lvgl_port_lock, a widget
+    // tree that never returns from a layout, a draw unit waiting on a semaphore
+    // nobody will give. Blocked tasks yield, so the idle tasks keep running and
+    // the task watchdog is perfectly happy while the screen is stone dead.
+    //
+    // ARMED ONLY ONCE THE UI HAS BEATEN AT LEAST ONCE, so a slow boot or a
+    // headless build can never reboot-loop the truck.
+    {
+      static uint32_t lastBeat = 0u;
+      static uint32_t lastBeatMs = 0u;
+      static bool armed = false;
+      const uint32_t beat = uiHeartbeat();
+      const uint32_t nowTick = nowMs();
+      if (beat != lastBeat) {
+        lastBeat = beat;
+        lastBeatMs = nowTick;
+        armed = true;
+      } else if (armed && (nowTick - lastBeatMs) >= UI_WATCHDOG_MS) {
+        ESP_LOGE(TAG, "UI STALLED %ums (beat stuck at %u) -- rebooting",
+                 static_cast<unsigned>(nowTick - lastBeatMs),
+                 static_cast<unsigned>(beat));
+        // Let the message reach the host before the reset takes the port with
+        // it. Without this the console shows a reboot with no reason.
+        vTaskDelay(pdMS_TO_TICKS(120));
+        esp_restart();
+      }
+    }
+
+    // The button diagnostic. Every DISTINCT byte value prints once, so holding
+    // a button prints one line and the gap to the next tells us the report rate.
+    {
+      static uint8_t lastBtn = 0u;
+      const uint8_t seen = gBtnSeen;
+      if (seen != lastBtn) {
+        lastBtn = seen;
+        ESP_LOGI(TAG, "0x394 b3=%02X at %ums  (bit2=right, bit3=left)",
+                 static_cast<unsigned>(seen),
+                 static_cast<unsigned>(gBtnSeenMs));
+      }
+    }
 
     // Trip housekeeping, outside the monitor window so an NVS write can never
     // stall ATMA. The reset is applied here, on the one task that writes the
@@ -860,8 +1135,8 @@ static void carTask(void*) {
     faultScanStep();
 
     // A few requests, then back to listening. Bounded so a slow module cannot
-    // starve the monitor window.
-    for (uint8_t n = 0u; n < 3u; ++n) {
+    // starve the monitor window -- see BUS_POLLS_PER_PASS for the arithmetic.
+    for (uint8_t n = 0u; n < BUS_POLLS_PER_PASS; ++n) {
       const PollItem* item = gSched.next(nowMs());
       if (item == nullptr) {
         break;
@@ -909,17 +1184,48 @@ extern "C" void app_main(void) {
   // stored palette has to be active before anything is built with it.
   uiThemeSet(settingsGet().theme);
 
+  // Resolve the VehicleState slots the snapshot reads from.
+  //
+  // This used to live in uiInit(), which is why the renderer had to be handed
+  // the hub at all. It belongs here: the names are a property of SignalDb and
+  // of this vehicle, and every one of them is already registered a few lines
+  // above by the same kPlan walk. The renderer never needed to know a signal
+  // had a NAME.
+  //
+  // indexOfName wants the exact name; a signal that is not registered comes
+  // back -1 and the snapshot reads that readout as ABSENT, which is the honest
+  // answer and not a crash.
+  faultScanPlanInit(gFaultPlan);
+  linkHealthInit(gLinkHealth);
+
+  snapshotSourceInit(gSnapSrc);
+  snapshotSlotsInit(gSnapSlots);
+  gSnapSlots.coolant = gState.indexOfName("CCN.Engine Coolant Temperature");
+  gSnapSlots.volts = gState.indexOfName("CCN.System Voltage");
+  gSnapSlots.speed = gState.indexOfName("CCN.Vehicle Speed");
+  gSnapSlots.rpm = gState.indexOfName("CCN.Engine Revolutions Per Minute");
+  gSnapSlots.ambient = gState.indexOfName("CCN.Ambient Temperature");
+  gSnapSlots.tyre[0] = gState.indexOfName("WCM.Tyre Sensor 1");
+  gSnapSlots.tyre[1] = gState.indexOfName("WCM.Tyre Sensor 2");
+  gSnapSlots.tyre[2] = gState.indexOfName("WCM.Tyre Sensor 3");
+  gSnapSlots.tyre[3] = gState.indexOfName("WCM.Tyre Sensor 4");
+  gSnapSlots.spare = gState.indexOfName("WCM.Tyre Spare");
+
+  // One publish before the UI exists, so the first frame draws a resolved
+  // snapshot rather than the zeroed one. Both read the same dashes today --
+  // nothing has arrived yet -- but it means the renderer is never looking at a
+  // structure that no builder has touched.
+  publishSnapshot(nowMs());
+
   if (displayInit() == ESP_OK) {
     // Brief flash so a blank screen can be told apart from a dead one before
     // LVGL takes the panel over.
     (void)displayFill(RGB565_BLACK);
     ESP_ERROR_CHECK(displayBacklight(100u));
-    uiSetBroadcast(&gBcast);
-    uiSetTrips(&gTrips, requestTripReset);
-    uiSetAccel(&gAccel);
-    uiSetFaults(&gFaults, requestFaultScan, requestFaultMute,
-                requestFaultClear);
-    if (uiInit(&gState) != ESP_OK) {
+    uiSetSnapshotReader(readSnapshot);
+    uiSetTripReset(requestTripReset);
+    uiSetFaultActions(requestFaultScan, requestFaultMute, requestFaultClear);
+    if (uiInit() != ESP_OK) {
       ESP_LOGE(TAG, "dashboard unavailable");
     } else if (touchInit() != ESP_OK) {
       // Readable but not swipeable. Worth continuing: every screen still shows
@@ -935,7 +1241,17 @@ extern "C" void app_main(void) {
   // hold so the handshake runs behind the welcome screen rather than after it.
   // Core 0, away from the renderer on core 1. Its long blocking UART reads are
   // then invisible to the display no matter how long a module takes to answer.
-  xTaskCreatePinnedToCore(carTask, "car", 6144, nullptr, 5, nullptr, 0);
+  //
+  // THE RETURN IS CHECKED, and it was not. A failed xTaskCreate here is the one
+  // failure in this file that is completely SILENT: no task, so no begin(), so
+  // no "adapter ready" and no "link not ready, retrying" either -- the two logs
+  // anyone debugging a dead link goes looking for. The panel comes up, renders
+  // happily and shows dashes for ever, which is indistinguishable from a
+  // gateway that is not plugged in.
+  if (xTaskCreatePinnedToCore(carTask, "car", 6144, nullptr, 5, nullptr, 0) !=
+      pdPASS) {
+    ESP_LOGE(TAG, "car task creation FAILED -- no link, no vehicle data");
+  }
 
   // Blocks app_main only, and app_main is allowed to return. The hold is what
   // covers the 328 handshake; the ceiling is what stops a dead gateway from

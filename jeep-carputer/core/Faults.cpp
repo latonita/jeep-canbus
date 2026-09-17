@@ -192,6 +192,18 @@ bool faultsToggleMute(FaultSet& s, uint8_t index) {
 uint8_t faultsAnsweredCount(const FaultSet& s) { return popcount16(s.answered); }
 uint8_t faultsUnreachableCount(const FaultSet& s) { return popcount16(s.unreachable); }
 
+uint8_t faultsFind(const FaultSet& s, uint8_t ecu, uint16_t code) {
+  // `count`, not FAULT_MAX: the slots past the count are stale rows left by a
+  // previous, longer scan, and matching one of them would hand the caller a
+  // fault the car is no longer reporting.
+  for (uint8_t i = 0u; i < s.count; ++i) {
+    if (s.f[i].ecu == ecu && s.f[i].code == code) {
+      return i;
+    }
+  }
+  return 0xFFu;
+}
+
 void faultsRemove(FaultSet& s, uint8_t index) {
   if (index >= s.count) {
     return;   // nothing there; the caller's index went stale, not wrong

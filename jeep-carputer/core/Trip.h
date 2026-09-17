@@ -60,16 +60,46 @@ enum TripId : uint8_t {
 // interval is DROPPED, not clamped: a dropped interval under-reads by a known,
 // bounded amount, whereas a clamped one asserts a flow rate nobody measured.
 //
-// 2000 ms, not the 1000 ms that suits a continuous logger. This firmware is not
-// one: ATMA is modal, so the loop listens for MONITOR_WINDOW_MS and then leaves
-// monitor mode to run KWP requests, and 0x1A7 stops arriving for the whole poll
-// phase. That gap is not lost frames -- we know exactly why we stopped
-// listening and the engine plainly kept running -- so holding the last rate
-// across it is the correct estimate, and the threshold has to clear a poll
-// phase or every one of them would be discarded and the total would run low.
+// 2000 ms, AND IT IS SIZED FOR OUR OWN CLOCK RATHER THAN FOR THE BUS. That
+// distinction is the whole of this comment, and an earlier version of it had
+// the reason wrong: it argued the slack was needed because ATMA is modal -- the
+// loop listens for a window, then goes deaf to run KWP requests, and 0x1A7 stops
+// arriving for the whole poll phase -- and concluded that "if the loop is ever
+// made to listen continuously, 1000 ms becomes the right number".
 //
-// Genuine dropouts are longer than this and still get dropped. If the loop is
-// ever made to listen continuously, 1000 ms becomes the right number.
+// The loop IS continuous now, on any 2.1 adapter, and 1000 ms is not the
+// interesting number. Measured over a 1449.6 s drive, 14478 0x1A7 frames timed
+// by the gateway's own clock:
+//
+//   median 100 ms, p99 108 ms, WORST 206 ms. Eighteen intervals above 150 ms,
+//   NONE above 300 ms. Eighteen single frames lost in twenty-four minutes.
+//
+// So on the ADAPTER's clock the honest threshold is about 300 ms -- thirty per
+// cent of headroom over the worst interval the bus actually produced -- and
+// every one of 2000, 1000, 500 and 300 integrates the identical 1.1055 L.
+// Tightening to 150 ms would start discarding real fuel (0.18 %).
+//
+// WHAT KEEPS IT AT 2000 IS THE FALLBACK PATHS, not the bus. This threshold is a
+// compile-time constant in pure code that cannot know which clock the stamps
+// came in on, and there are three possibilities:
+//
+//   AT@SML2  broadcast stamps are the GATEWAY's, mapped by core/StreamClock.
+//            300 ms would be right.
+//   AT@SM1   host receive times. A reader stalled 100 ms behind an NVS commit
+//            inflates the worst 0x1A7 interval from 206 ms to 299 ms and, at
+//            300 ms, a 200 ms stall starts dropping intervals -- up to 9.5 % of
+//            the fuel discarded in the measured worst case.
+//   ATMA     the modal windows the old comment described, which really do need
+//            seconds of slack.
+//
+// 2000 ms is therefore the value that is SAFE ON ALL THREE, and the cost of that
+// safety is precisely bounded: on the LAWICEL path it drops nothing that 300 ms
+// would keep, and it merely fails to notice a dropout between 300 ms and 2 s.
+// Tightening it means making it a runtime value that follows the link mode, and
+// that is a deliberate change to a persisted-totals path rather than a constant
+// to edit -- see the note in CLAUDE.md.
+//
+// Genuine dropouts are longer than this and still get dropped.
 #define TRIP_MAX_GAP_MS 2000u
 
 // One trip's running totals. Plain data on purpose: TripStore writes this
@@ -131,6 +161,29 @@ float tripAvgKph(const Trip& t);
 // is the driver's responsibility rather than the bus's.
 float tripCost(const Trip& t, float pricePerLitre);
 
+// How far the fuel in the tank goes at THIS meter's average, in km. Negative
+// when it cannot be said, exactly like tripL100() and tripCost().
+//
+// Same shape as tripCost(): a trip plus one scalar the trip cannot know. The
+// litres come from 0x159 on the bus and the consumption from whichever meter
+// the driver is looking at, so the answer changes when they switch tabs -- and
+// that is the point. TRIP A carrying a tankful of motorway and TRIP B a week of
+// town SHOULD project differently.
+//
+// THE MINIMUM DISTANCE IS ONE KILOMETRE, ten times tripL100()'s own floor, and
+// the difference is deliberate. tripL100() only has to survive the odometer's
+// 100 m quantisation to state a fact about distance already covered. This
+// PROJECTS that fact over a whole tankful -- roughly 700 km of it -- so an
+// average taken over 100 m is multiplied by seven thousand. A meter reset at
+// the bottom of a hill would read a few hundred millilitres per 100 km and
+// promise several thousand kilometres, which is arithmetically exact and a lie.
+//
+// There is deliberately NO upper clamp. Past this floor the number is the
+// meter's own honest projection, and capping it would make a wrong average look
+// reasonable rather than obviously wrong.
+#define TRIP_RANGE_MIN_KM 1.0f
+float tripRangeKm(const Trip& t, float litresInTank);
+
 // Smoothed instantaneous flow in L/h, or negative when 0x1A7 has gone quiet --
 // which is what an engine that is not running looks like.
 float tripFlowLph(const TripSet& s, uint32_t nowMs);
@@ -177,3 +230,22 @@ float tripFlowLph(const TripSet& s, uint32_t nowMs);
 // Still worth confirming against a pump. Q/160 is a documented scaling, not one
 // derived here, but nothing in this firmware has been checked against fuel
 // actually paid for. A fill-to-fill over a few hundred km would settle it.
+//
+// IT IS NO LONGER UNCHECKED AGAINST A DRIVE, THOUGH, and the result is
+// plausible enough to be worth recording: replaying a 1449.6 s capture
+// (14478 0x1A7 frames, timed by the gateway's own clock) through this arithmetic
+// gives 1.1055 L over a 10.600 km odometer delta -- 10.43 L/100 km, for a
+// 3.0 CRD doing 26 km/h average up and down a steep hill. Peak flow 13.1 L/h,
+// 1.2 % of samples at exactly zero (overrun cut-off on the descent). A wrong
+// model would not land there by accident.
+//
+// AND THE ERROR BUDGET IS NOW KNOWN, which matters more than the figure:
+//
+//   integration scheme      0.003 %  (forward / backward / trapezoid, all three)
+//   host-clock jitter       0.03 %   (worst of four reader-stall models)
+//   ODOMETER QUANTISATION   0.94 %   (+/- one 100 m tick over 10.6 km)
+//
+// The distance term dominates by a factor of thirty. So no refinement of the
+// time integral -- not the timestamps, not the rectangle rule -- can improve
+// the L/100 km figure on a short trip: only a longer trip can, and on a tankful
+// the odometer term falls away and Q/160 itself becomes the thing to check.

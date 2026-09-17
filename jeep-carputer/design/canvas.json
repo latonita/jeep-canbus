@@ -2,7 +2,7 @@
   "artboards": [
     {
       "file": "Splash.dc.html",
-      "title": "0 / WELCOME",
+      "title": "-- / WELCOME  (not on the swipe axis)",
       "x": -320,
       "y": 0,
       "w": 240,
@@ -10,7 +10,7 @@
     },
     {
       "file": "Main.dc.html",
-      "title": "1 / DRIVE - boot lands here",
+      "title": "0 / DRIVE - boot lands here",
       "x": 0,
       "y": 0,
       "w": 240,
@@ -18,7 +18,7 @@
     },
     {
       "file": "Trip.dc.html",
-      "title": "2 / TRIP",
+      "title": "1 / TRIP",
       "x": 320,
       "y": 0,
       "w": 240,
@@ -26,15 +26,15 @@
     },
     {
       "file": "Tyres.dc.html",
-      "title": "3 / TYRES",
-      "x": 640,
+      "title": "4 / TYRES",
+      "x": 1280,
       "y": 0,
       "w": 240,
       "h": 320
     },
     {
       "file": "Health.dc.html",
-      "title": "4 / HEALTH",
+      "title": "3 / HEALTH",
       "x": 960,
       "y": 0,
       "w": 240,
@@ -42,8 +42,8 @@
     },
     {
       "file": "Settings.dc.html",
-      "title": "5 / SETTINGS",
-      "x": 1280,
+      "title": "6 / SETTINGS  (5 / ACCEL has no board)",
+      "x": 1600,
       "y": 0,
       "w": 240,
       "h": 320
@@ -90,7 +90,7 @@
     },
     {
       "file": "Splash.landscape.dc.html",
-      "title": "L0 / WELCOME",
+      "title": "L-- / WELCOME  (not on the swipe axis)",
       "x": -400,
       "y": 1250,
       "w": 320,
@@ -98,7 +98,7 @@
     },
     {
       "file": "Main.landscape.dc.html",
-      "title": "L1 / DRIVE - boot lands here",
+      "title": "L0 / DRIVE - boot lands here",
       "x": 0,
       "y": 1250,
       "w": 320,
@@ -106,7 +106,7 @@
     },
     {
       "file": "Trip.landscape.dc.html",
-      "title": "L2 / TRIP",
+      "title": "L1 / TRIP",
       "x": 400,
       "y": 1250,
       "w": 320,
@@ -114,15 +114,15 @@
     },
     {
       "file": "Tyres.landscape.dc.html",
-      "title": "L3 / TYRES",
-      "x": 800,
+      "title": "L4 / TYRES",
+      "x": 1600,
       "y": 1250,
       "w": 320,
       "h": 240
     },
     {
       "file": "Health.landscape.dc.html",
-      "title": "L4 / HEALTH",
+      "title": "L3 / HEALTH",
       "x": 1200,
       "y": 1250,
       "w": 320,
@@ -130,8 +130,8 @@
     },
     {
       "file": "Settings.landscape.dc.html",
-      "title": "L5 / SETTINGS",
-      "x": 1600,
+      "title": "L6 / SETTINGS  (L5 / ACCEL has no board)",
+      "x": 2000,
       "y": 1250,
       "w": 320,
       "h": 240
@@ -165,6 +165,22 @@
       "title": "L / CRITICAL ALERT - NOT BUILT",
       "x": 800,
       "y": 1990,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "Compass.dc.html",
+      "title": "2 / COMPASS",
+      "x": 640,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "Compass.landscape.dc.html",
+      "title": "L2 / COMPASS",
+      "x": 800,
+      "y": 1250,
       "w": 320,
       "h": 240
     }
@@ -217,7 +233,7 @@
       "x": 1280,
       "y": 360,
       "w": 260,
-      "text": "SETTINGS\n\nINVERT COLOURS exists because the panel is not always read in the dark. Accent on black is right at night and at dusk; with the sun square on the glass, black on teal carries further than teal on black, because the lit area is then the larger one. It is one row, not a brightness slider, because a driver reaching for it is squinting already.\n\nNote for anyone reading the driver: the panel's NORMAL state is esp_lcd_panel_invert_color(true). That is not a typo and it is not the setting - it is what this controller needs to paint correct colours at all. Inverting for sunlight therefore calls it with FALSE. The sense of the flag is backwards from the name of the setting, and a reader who assumes otherwise gets a screen that looks broken on boot.\n\nThe choice persists in NVS. A driver who inverted it for an afternoon of low western sun should not have to find it again after every key cycle; the cost of remembering is one byte, and the cost of forgetting is a setting nobody bothers to use twice.\n\nFUEL PRICE is the third row, and it is the one control here that is not a cycle. A price is not a small set of choices - it is a number to land on exactly, and cycling from 2.01 to 1.50 would be fifty-one taps. So it gets a minus and a plus: a tap moves a cent, a held press moves five at a time, and the commit to flash waits for the finger to come off rather than writing on every step.\n\nIt defaults to 2.01 EUR. A roughly-right default beats a zero: a zero makes every cost readout dash until someone finds this row, where a plausible number is useful immediately and obviously wrong enough to correct.\n\nThat took the first of the two rows drawn deliberately empty; one remains. They are empty rather than filled with plausible options because a page that invents some to look finished is a page that teaches the driver to distrust it - which is exactly why a real setting was allowed to take one.\n\nThe INFO block is READ-ONLY. LINK is STREAM, ATMA or DOWN; ADAPTER is the 328's reported firmware; BUS is frames per second off the bus, which is the one number that says whether the whole instrument is being fed. All three are diagnostics for the person holding a laptop, not controls - a settings page that can drop the link is a settings page that eventually will, in a car park, at night, with no way back."
+      "text": "SETTINGS\n\nINVERT COLOURS exists because the panel is not always read in the dark. Accent on black is right at night and at dusk; with the sun square on the glass, black on teal carries further than teal on black, because the lit area is then the larger one. It is one row, not a brightness slider, because a driver reaching for it is squinting already.\n\nNote for anyone reading the driver: the panel's NORMAL state is esp_lcd_panel_invert_color(true). That is not a typo and it is not the setting - it is what this controller needs to paint correct colours at all. Inverting for sunlight therefore calls it with FALSE. The sense of the flag is backwards from the name of the setting, and a reader who assumes otherwise gets a screen that looks broken on boot.\n\nThe choice persists in NVS. A driver who inverted it for an afternoon of low western sun should not have to find it again after every key cycle; the cost of remembering is one byte, and the cost of forgetting is a setting nobody bothers to use twice.\n\nFUEL PRICE is the third row, and it is the one control here that is not a cycle. A price is not a small set of choices - it is a number to land on exactly, and cycling from 2.01 to 1.50 would be fifty-one taps. So it gets a minus and a plus: a tap moves a cent, a held press moves five at a time, and the commit to flash waits for the finger to come off rather than writing on every step.\n\nIt defaults to 2.01 EUR. A roughly-right default beats a zero: a zero makes every cost readout dash until someone finds this row, where a plausible number is useful immediately and obviously wrong enough to correct.\n\nThat took the first of the two rows drawn deliberately empty; one remains. They are empty rather than filled with plausible options because a page that invents some to look finished is a page that teaches the driver to distrust it - which is exactly why a real setting was allowed to take one.\n\nThe INFO block is READ-ONLY. LINK is SLCAN, STREAM, ATMA or DOWN - four states and not three, because the first two are not the same instrument: under SLCAN the trip and acceleration figures are timed by the gateway's own clock, and under STREAM by ours. When a figure looks wrong, which of those was in force is the first thing worth knowing, so the row says it rather than leaving it in a log line; ADAPTER is the 328's reported firmware; BUS is frames per second off the bus, which is the one number that says whether the whole instrument is being fed. All three are diagnostics for the person holding a laptop, not controls - a settings page that can drop the link is a settings page that eventually will, in a car park, at night, with no way back."
     },
     {
       "id": "confirm-note",
@@ -273,14 +289,14 @@
       "x": 0,
       "y": 1080,
       "w": 1600,
-      "text": "LANDSCAPE - 320x240, the same five peers\n\nRotation is a SETTINGS row, not a second product. Same pages, same order, same one-flick-one-page rule, same hard ends, same absence of an idle timeout. What changes is which axis is scarce: portrait has 320px of height to spend and only 240 of width, landscape has exactly the reverse, and every difference in this band follows from that one fact.\n\nTHE DOT RAIL MOVES INTO THE STATUS BAR. Portrait can afford a 26px rail of its own along the bottom - that is 8 percent of 320. Landscape cannot: the same 26px is 11 percent of 240, taken off the only axis that is short. The bar is 320px wide and carries three short items, so the dots ride in its true centre and the whole bottom rail goes back to content. Landscape gets 218px of content height rather than 192. The rail is the one piece of chrome that does not survive the rotation unchanged, and it is worth the discontinuity.\n\nTWO COLUMNS REPLACE A STACK. Portrait puts the hero number on top and the supporting grid beneath it. Landscape puts the hero in a 189px left column and the same values in a 130px right stack, divided by one rule. Nothing is dropped, nothing is added, nothing is reordered - it is the same instrument turned ninety degrees, which is what makes a runtime toggle safe rather than a second design to keep in sync.\n\nTHREE BOARDS DO NOT TAKE THE TWO-COLUMN TREATMENT, and each refused it for a measured reason rather than a taste. TYRES is already a grid and gets a wider one. FAULTS is a list and gets wider rows. SETTINGS was drawn in two columns first and the label would not fit - see its note; that is the one place the rotation made something harder rather than easier.\n\nNO NEW NUMERALS. Every numeral on every landscape board is 66px or 30px CSS - font_digits_64 and font_digits_30 - and the landscape set generated no new digit face. That was enforced, not lucky: four tyre pressures at hero size want 2x73px of digits plus labels plus chrome, which is 238 of the 218px available, so hero-size tyres were drawn and then thrown out.\n\nONE label face was added later, and deliberately: font_label_20, for the hero UNIT KEYS. The boards had always drawn the unit larger than the caption - 13px against 9 - and the firmware had been drawing both in font_label_14, which flattened that and made the unit read as a second caption. The key also had to leave the numeral's side: at 20px an inline L/100 starts where DRIVE's hero ends, so it moved to the top right of the page, where TYRES had already put BAR. Every hero now has the full width of its column, which is what TRIP needed - 247.8 alone is 164px of 165."
+      "text": "LANDSCAPE - 320x240, the same five peers\n\nRotation is a SETTINGS row, not a second product. Same pages, same order, same one-flick-one-page rule, same hard ends, same absence of an idle timeout. What changes is which axis is scarce: portrait has 320px of height to spend and only 240 of width, landscape has exactly the reverse, and every difference in this band follows from that one fact.\n\nTHE DOT RAIL MOVES INTO THE STATUS BAR. Portrait can afford a 26px rail of its own along the bottom - that is 8 percent of 320. Landscape cannot: the same 26px is 11 percent of 240, taken off the only axis that is short. The bar is 320px wide and carries three short items, so the dots ride in its true centre and the whole bottom rail goes back to content. Landscape gets 218px of content height rather than 192. The rail is the one piece of chrome that does not survive the rotation unchanged, and it is worth the discontinuity.\n\nTWO COLUMNS REPLACE A STACK. Portrait puts the hero number on top and the supporting grid beneath it. Landscape puts the hero in a 187px left band and the same values in a 112px right stack, divided by one rule. Those two numbers are not free to move independently: content = band + stack is (320 - 1 - 2*PAD) - PAD, which is 279px at a 10px inset and 271 at 12, whatever the divider does. It was 189/130 at 12px insets, and the stack came down to 112 only once the hero units left the header and wanted room on the numeral's own line - TRIP needs 187 for 247.8 plus KM, the stack needs 92 for 4163 rpm, and 279 covers both where 271 does not. Nothing is dropped, nothing is added, nothing is reordered - it is the same instrument turned ninety degrees, which is what makes a runtime toggle safe rather than a second design to keep in sync.\n\nTHREE BOARDS DO NOT TAKE THE TWO-COLUMN TREATMENT, and each refused it for a measured reason rather than a taste. TYRES is already a grid and gets a wider one. FAULTS is a list and gets wider rows. SETTINGS was drawn in two columns first and the label would not fit - see its note; that is the one place the rotation made something harder rather than easier.\n\nNO NEW NUMERALS. Every numeral on every landscape board is 66px or 30px CSS - font_digits_64 and font_digits_30 - and the landscape set generated no new digit face. That was enforced, not lucky: four tyre pressures at hero size want 2x73px of digits plus labels plus chrome, which is 238 of the 218px available, so hero-size tyres were drawn and then thrown out.\n\nTHE RIGHT-HAND STACK ROW is one 48px block - a 16px caption line box and a 35px value line box, the value hanging off the CAPTION'S BASELINE at +13 rather than off the bottom of its line box at +16 - centred in whatever height the row is given, because a stack of four 53s and one 56 has to look evenly set. It was 51 in a 53px row, which left the digits 1px off the hairline under them: font_digits_30's base_line is 0, so unlike every other face here its baseline IS the bottom of its line box and it has no descender space to absorb the difference. An all-caps caption never uses font_label_14's 3px of descender, so taking it back costs nothing visible and spends it on the gap that was wrong - 2px above the caption, 3 below the digits. The unit sits on the VALUE'S baseline (+35) too, not 10px above it, which is the same rule the hero units now follow; the stack and the hero used to read as two typographic systems.\n\nTHE Y COORDINATES ON THESE BOARDS ARE THE FIRMWARE'S. THE INK IS NOT. The boards are CSS Barlow Condensed and Barlow's figures are about 0.727em, so font-size:66px draws 48px digits where font_digits_64 draws 64. Every block boundary here is the shipped number - header 5..21, hero line box 24..97, sub-line 108..124, a stack value 15..50 against its rule at 53 - but the glyph inside the hero's 73px band is 16px shorter than the panel's, so it sits high in the band and the 11px sub-line gap reads wider here than it does on glass. Take the y's off these boards. Do not take the optical gaps, and never take a width.\n\nONE HERO BLOCK, SHARED BY DRIVE, TRIP AND HEALTH. These three cards had each grown their own hero geometry and ended up at three different heights: the header at y=8 / 5 / 4, the numeral at 24 / 76 / 52, the sub-line at 103 / 155 / none. Flicking between them the whole card jumped, which reads as three designs rather than as one instrument with three cards. They now sit on one set of numbers, and the numbers are DERIVED from the two faces' metrics rather than chosen, which is what stops them drifting again. font_digits_64 is line_height 73 with base_line 1, so its baseline is 72px down and its glyphs span y+9 to y+73; font_label_14 is 16/3, so its own baseline is 13px down. Header at 5, in both bands. HERO_Y = 24. UNIT_Y = HERO_Y + 72 - 13 = 83, which puts a label-face unit's baseline exactly ON the numeral's. SUB_Y = HERO_Y + 73 + 11 = 108. DRIVE's third acceleration figure is SUB_Y + 18 = 126 - one 16px line and 2px of air under the sub-line, derived from it rather than typed, because typing it is what left it overlapping when the sub-line went 103 to 108.\n\nTHE 11 IN SUB_Y IS THE ONE FIGURE HERE THAT IS NOT DERIVED. It was 6, which is portrait's gap, and 6 is too tight in this band: font_digits_64's glyphs reach y+73, the very bottom of its line box, so the measured gap and the SEEN gap are the same number, where a face with descender space to spare would have looked airier at the same figure. It was set by eye against the panel, and it is the only number on this block that was.\n\nTHE HERO'S UNIT CAME BACK DOWN ONTO ITS BASELINE, and the boards lost their font_label_20 keys with it. DRIVE and HEALTH used to park the unit in the header as a 20px key, which was the safe place for it: at 20px an inline L/100 starts where DRIVE's hero ends. TRIP had always drawn KM on the hero's baseline instead, and that is the arrangement that won - right-aligned to the left column's content edge at x=197 so it holds still while the number's width changes underneath it, in font_label_14 (11px on these boards), not font_label_20. That face still exists and is still right for a unit key genuinely parked in a header, which is what ACCEL's S is; a hero's unit belongs to its number.\n\nIT COULD NOT SIMPLY MOVE THERE, and DRIVE is where that bill came due. L/100 in font_label_14 is 35px right-aligned at x=197, so its left edge is 162; the hero starts at x=8; and font_digits_64 renders 100.0 in 159px. So DRIVE's hero DROPS ITS DECIMAL at three integer digits - 100, not 100.0 - which brings it to about 109 and keeps the two apart, and at 100 L/100km the tenth is noise. A board drawing 100.0 in that hero would be showing something the firmware can no longer produce. These boards show 9.4, which is the ordinary case; the rule is the reason the unit could leave the header at all. HEALTH is safe by accident - V is 8px - and TRIP's KM is 18.6."
     },
     {
       "id": "landscape-tyres-note",
       "x": 800,
       "y": 1530,
       "w": 300,
-      "text": "TYRES, LANDSCAPE - and why the two boards now diverge\n\nThe MAPPED board keeps a 2x2, because a 2x2 makes a spatial claim: the left column is the left of the truck and the top row is the front. At 160px per cell the corner gets its full name on one line AND the word LOW beside it, so the soft wheel is findable without comparing four numbers against a target printed at the bottom of the screen. That is the whole landscape gain here, and it is a real one - the hero feature exists to be read at a glance.\n\nThe board that SHIPS does not use a 2x2, because the spatial claim is exactly what the data does not support. Portrait had no choice: 240px will not hold four columns. Landscape will. So the shipped board is four sensors in a row, in index order, with no geometry implied at all. The layout finally says the same thing the caption has always said.\n\nThe unit moves to the title as a single BAR key. Printing bar four times is noise, and the width it costs is the width the corner names need."
+      "text": "TYRES, LANDSCAPE - and what the two boards still disagree about\n\nBOTH BOARDS ARE A 2x2 NOW, reading order 1 2 on the top row, 3 4 beneath. The shipped board was four sensors in a single row in index order, and that was the more conservative arrangement for a reason that still stands: a grid implies front/rear and left/right, and 21 3B returns four bytes in a fixed order with nothing in the captures saying which wheel is which. Four across made no claim where a 2x2 of numbers invites one. Changed on the owner's explicit instruction after precisely that was put to them, which makes it their call and not drift. The cells still read SENSOR, never LF/RF/LR/RR - the layout suggests a shape while the labels refuse to name a corner, and nothing here is a mapping until one is measured. Deflate a wheel and watch which index moves.\n\nSO THE TWO BOARDS NOW DIFFER ONLY IN THE NAMES. The mapped board is the aspirational one - LEFT FRONT / RIGHT FRONT / LEFT REAR / RIGHT REAR, with a LOW chip per cell that the firmware does not draw at all (it colours the value instead). It is MEANT to disagree with what ships: do not correct it against the shipped board or against the firmware.\n\nTHE BAR KEY IS GONE FROM THE HEADER, replaced by a small bar beside each of the four values. The key was one word in the title on the argument that printing bar four times is noise and the width it costs is the width the cells need. The width turned out to be there: bar in font_label_14 is 20.9px, so right-aligned 10px inside a 159px cell its left edge is 128.1, and the widest string the formatter can physically emit - a 10.00 shape at 75.9px, since a raw 255 caps at 17.58 and two digits therefore always start with a 1 - reaches only 117.5. That is 10.6px of clearance at the worst case and 17.6 at an ordinary 2.34. Portrait has always put a bar in every cell; both bands now say the same thing in the same place. Owner's instruction.\n\nTHE UNIT IS RIGHT-ALIGNED INSIDE ITS CELL, not trailed after the number, and it sits on the VALUE'S BASELINE (value top + 35 - 13, the same rule the hero units and the stack rows follow). The value is centred in its cell and its width changes with the reading - 27px for a dash pair, 62 for 2.34, 71 for a garbage 17.58 - so a unit placed after the glyphs would slide sideways every time a corner updated, on four cells at once, on the one page whose whole job is being read at a glance. A one-shot right-aligned box cannot move whatever the number does. THE VALUES THEMSELVES DID NOT MOVE: they are still centred exactly where the BAR-key version had them.\n\nRepaired while doing this, on the shipped board only: it was closing the 320x240 root one line early, which left SPARE and the TARGET / n LOW footer outside the board box, where the contact sheet's overflow:hidden clipped them. Both rows had been in the markup and invisible."
     },
     {
       "id": "landscape-settings-note",
@@ -294,7 +310,7 @@
       "x": 1200,
       "y": 1530,
       "w": 300,
-      "text": "HEALTH, LANDSCAPE\n\nThree regions rather than two. Hero and temperatures share the top 156px in the usual two columns, and LAMPS takes a full-width strip underneath both.\n\nThe pills are the one element that is unambiguously better in landscape: three targets at 98px instead of 74, on a row that is no longer competing with anything for height.\n\nThey are still NOT DRIVEN. Nothing in the firmware can light them, in either orientation. MIL is still deliberately absent."
+      "text": "HEALTH, LANDSCAPE\n\nThree regions rather than two. Hero and temperatures share the top 156px in the usual two columns, and LAMPS takes a full-width strip underneath both.\n\nTHE HERO IS NOW THE SHARED BLOCK. It used to be centred in whatever the header left of the 156px region - defensible on its own, and it put the numeral 28px below DRIVE's, so the card jumped under the finger on the way past. Header at 5, numeral at 24, and V on the numeral's baseline at 83 rather than as a 20px key in the header; the band note has the derivation. V is 8px in the label face, so unlike DRIVE's L/100 it has room to spare on that line at any value volts can reach. HEALTH has no sub-line, so the 59px under the hero is simply air - which is the point: the air is below the number in all three cards now, not redistributed around it.\n\nThe pills are the one element that is unambiguously better in landscape: three targets at 98px instead of 74, on a row that is no longer competing with anything for height.\n\nThey are still NOT DRIVEN. Nothing in the firmware can light them, in either orientation. MIL is still deliberately absent."
     },
     {
       "id": "landscape-faults-note",

@@ -35,10 +35,16 @@
 // at either size. The digit faces still have no letters and no currency: a cost
 // is numerals in font_digits_* with the sign beside it in a label face.
 //
-// font_label_20 exists for the HERO UNIT KEYS -- the KM / L/100 / V / BAR that
-// sit top-right of a page. The artboards give the unit 13px against a 9px
-// caption, so the unit is meant to be LARGER than the caption; drawing both in
-// font_label_14 flattened that and made the unit read as another caption.
+// font_label_20 WAS the hero-unit-key face -- the KM / L/100 / V / BAR that sat
+// top-right of a page. THERE ARE NO UNIT KEYS ANY MORE: both bands now put the
+// hero's unit on the hero's BASELINE in font_label_14, mkUnitKey() is deleted,
+// and the argument this paragraph used to make (the artboards give the unit
+// 13px against a 9px caption, so the unit should be LARGER than the caption)
+// applies to a layout that no longer exists.
+//
+// KEEP THE FACE. It is still drawn as UI_FONT_UNIT in two places that are not
+// units at all: the - / + glyphs on the SETTINGS fuel-price buttons, and the
+// fault code in the fault dialog. Deleting it would take both with it.
 // Regenerating label_14 with the euro did not move a single existing advance
 // width -- same --size 16, same metrics (line_height 16, base_line 3) -- so
 // nothing in either band shifted.

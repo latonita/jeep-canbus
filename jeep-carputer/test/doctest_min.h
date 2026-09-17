@@ -17,6 +17,15 @@ extern int g_failures;
       std::printf("FAIL %s:%d  ", __FILE__, __LINE__);                    \
       std::printf(__VA_ARGS__);                                           \
       std::printf("\n");                                                  \
+      /* FLUSHED, and only on the failing branch so the passing case still  \
+         costs nothing. stdout is fully buffered whenever it is not a       \
+         console -- a pipe, a file, a CI log -- and the suites now run      \
+         under ASan, which ABORTS the process: without this, every FAIL     \
+         line printed before the abort dies in the buffer and the report    \
+         is a sanitizer trace with no indication of which checks had        \
+         already gone wrong. Losing the diagnosis to the change that was    \
+         meant to improve it. */                                           \
+      std::fflush(stdout);                                                \
     }                                                                     \
   } while (0)
 

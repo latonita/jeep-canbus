@@ -19,12 +19,18 @@ bool accelLaunched(const AccelSet& a) {
   return a.state == ACCEL_RUNNING && a.live.floored;
 }
 
-// Throw away a run that was never launched.
+// Throw away a run that was never launched, ONCE ITS WINDOW HAS PASSED.
 //
-// Not finish() -- finish() PUBLISHES what the run managed, and the whole point
-// here is that an unlaunched run has nothing worth publishing however quick it
-// was. IDLE rather than ARMED, because as far as we know the car is moving and
-// a run may only ever arm from rest.
+// This is the in-flight half of the launch gate and it is about the STATE, not
+// about publishing: it takes the timer out of RUNNING the moment the run
+// becomes hopeless, so accelRunning() stops being true and nothing goes on
+// being timed. finish() carries the other half -- it refuses to publish an
+// unlaunched run at all -- because this test can only ever fire after
+// ACCEL_LAUNCH_MS and a run that reaches both splits inside that window never
+// comes past here.
+//
+// IDLE rather than ARMED, because as far as we know the car is moving and a run
+// may only ever arm from rest.
 static void dropUnlaunched(AccelSet& a, uint32_t nowMs) {
   if (a.state == ACCEL_RUNNING && !a.live.floored &&
       (nowMs - a.startMs) > ACCEL_LAUNCH_MS) {
@@ -52,8 +58,45 @@ const AccelRun* accelLast(const AccelSet& a) {
   return (a.histCount == 0u) ? static_cast<const AccelRun*>(0) : &a.hist[0];
 }
 
-// Close the run out: publish whatever it managed and take the best of it.
+// Close the run out: publish what a LAUNCHED run managed and take the best of
+// it. An unlaunched one is thrown away here -- see the gate below.
 static void finish(AccelSet& a) {
+  // THE LAUNCH GATE, stated where the publishing happens rather than only in
+  // dropUnlaunched(). Both are needed, and they answer different questions.
+  //
+  // dropUnlaunched() is purely TEMPORAL -- it abandons a run only once
+  // `now - startMs` has passed ACCEL_LAUNCH_MS -- so a run that FINISHES
+  // inside that window never meets it at all. Two speed samples 100 ms apart
+  // are enough: 0 km/h idling arms, one reading over 100 puts both splits in
+  // the bag, the "every split in the bag" branch calls finish(), and an
+  // unlaunched run is published with a 55 ms 0-60 on it.
+  //
+  // That is reachable, not theoretical. core/Broadcast.cpp rejects the 0x002
+  // speed word only at EXACTLY 0xFFFF, so 0xFFFE reads as a real 511.98 km/h
+  // -- and playback.log proves near-sentinel corruption happens on this bus,
+  // four frames of it in one 841 s drive. One such sample is permanent damage
+  // rather than a wrong row: `best` only ever moves FASTER and accelInit()
+  // runs once per boot, so a 55 ms 0-60 sits there beside every genuine run
+  // for the rest of the key cycle, and no later 5 s launch can displace it.
+  // A frozen-but-plausible number that cannot be corrected is the exact
+  // failure mode this project is written to avoid.
+  //
+  // Here, and not in the four callers. finish() is the ONLY writer of `hist`
+  // and `best`, so one test at the choke point cannot be forgotten by the
+  // fifth caller; guarding each site instead would have to be got right four
+  // times over and again next time. And NOT by making dropUnlaunched()
+  // ignore the elapsed time -- that would kill a real launch before its pedal
+  // could arrive, since 0x2C0 is a 100 ms frame and the window exists
+  // precisely because a foot is not simultaneous with the first millimetre.
+  //
+  // The run is still WIPED, exactly as dropUnlaunched() wipes it: an
+  // unlaunched run has nothing worth keeping however quick it looked, and
+  // leaving `live` populated would let the next arming inherit its splits.
+  if (!a.live.floored) {
+    memset(&a.live, 0, sizeof(a.live));
+    return;
+  }
+
   bool any = false;
   for (uint8_t i = 0; i < ACCEL_SPLIT_COUNT; ++i) {
     if (a.live.ms[i] != 0u) {
