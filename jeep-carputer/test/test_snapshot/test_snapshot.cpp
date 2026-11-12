@@ -541,7 +541,7 @@ TEST_MAIN_BEGIN()
     SnapshotSource src;
     snapshotSourceInit(src);
 
-    // Feed a steady 10 L/h (Q = 1600) so tripFlowLph has something smoothed.
+    // Feed a steady 10 L/h (Q = 1280) so tripFlowLph has something smoothed.
     TripSet tr;
     tripSetInit(tr);
     uint32_t t = 1000u;
@@ -549,7 +549,7 @@ TEST_MAIN_BEGIN()
       running(bc, t, 0.0f);
       bc.odometerDm = 10000u;
       bc.odometerMs = t;
-      bc.flowRaw = 1600u;
+      bc.flowRaw = 1280u;
       bc.flowMs = t;
       tripUpdate(tr, bc, t);
     }
@@ -621,13 +621,13 @@ TEST_MAIN_BEGIN()
     TripSet tr;
     tripSetInit(tr);
 
-    // Q = 160 per L/h, so 80 L/h is Q = 12800 -- well past full scale.
+    // Q = 128 per L/h, so 80 L/h is Q = 10240 -- well past full scale.
     uint32_t t = 1000u;
     for (; t <= 30000u; t += 100u) {
       running(bc, t, 0.0f);
       bc.odometerDm = 10000u;
       bc.odometerMs = t;
-      bc.flowRaw = 12800u;
+      bc.flowRaw = 10240u;
       bc.flowMs = t;
       tripUpdate(tr, bc, t);
     }
@@ -699,6 +699,119 @@ TEST_MAIN_BEGIN()
     CHECK_EQ(fs.count, 0);
     CHECK_EQ(s.faults.count, 2);
     CHECK_EQ(s.faults.f[0].code, 0x0119u);
+  }
+
+  // -------------------------------------------------------------------------
+  // THE HISTORY WIRING. core/History.cpp is tested on its own in test_history;
+  // what is tested HERE is the policy that joins the two, which lives in
+  // snapshotBuild() and nowhere else:
+  //
+  //   * flowLph is the rate WITHOUT the unit switch,
+  //   * only a SNAP_FRESH reading is recorded,
+  //   * and the snapshot's copy of the ring is a copy.
+  // -------------------------------------------------------------------------
+  {
+    SnapshotSlots sl;
+    snapshotSlotsInit(sl);
+    BroadcastState bc;
+    broadcastClear(bc);
+    AccelSet ac;
+    accelInit(ac);
+    FaultSet fs;
+    faultsInit(fs);
+    Snapshot s;
+    SnapshotSource src;
+    snapshotSourceInit(src);
+
+    // The same steady 10 L/h the flow block above uses.
+    TripSet tr;
+    tripSetInit(tr);
+    uint32_t t = 1000u;
+    for (; t <= 20000u; t += 100u) {
+      running(bc, t, 0.0f);
+      bc.odometerDm = 10000u;
+      bc.odometerMs = t;
+      bc.flowRaw = 1280u;
+      bc.flowMs = t;
+      tripUpdate(tr, bc, t);
+    }
+
+    // THE WHOLE REASON flowLph EXISTS. At 20 km/h the hero readout switches to
+    // litres per 100 km and reads 50; the charted figure must stay in L/h and
+    // read 10. A trace that changed quantity partway through the window would
+    // be two half-charts against one scale with no visible seam.
+    running(bc, t, 20.0f);
+    snapshotBuild(s, src, sl, bc, tr, ac, fs, 0, true, t);
+    CHECK(s.flowPerDistance);
+    CHECK_NEAR(s.flow.v, 50.0f, 0.5f);
+    CHECK_EQ((int)s.flowLph.age, (int)SNAP_FRESH);
+    CHECK_NEAR(s.flowLph.v, 10.0f, 0.5f);
+
+    // ...and it is the same float one step earlier, so a standstill agrees.
+    running(bc, t, 0.0f);
+    snapshotBuild(s, src, sl, bc, tr, ac, fs, 0, true, t);
+    CHECK(!s.flowPerDistance);
+    CHECK_NEAR(s.flow.v, s.flowLph.v, 0.001f);
+
+    // The flow ring got the L/h figure, not the per-distance one.
+    float lo = -1.0f;
+    float hi = -1.0f;
+    CHECK(historyRange(s.hist, HIST_FLOW, 0u, lo, hi));
+    CHECK(hi < 20.0f);      // 50 would mean the switched figure was recorded
+    CHECK_NEAR(hi, 10.0f, 1.0f);
+
+    // ---- ONLY FRESH IS RECORDED --------------------------------------------
+    // A fresh 80 C goes in. Then the SAME frame stops arriving while the
+    // decoded value moves to 100: that reads HELD, and a held reading must not
+    // widen the bucket. If it did, a link dropout would draw a flat line at
+    // the last value instead of a hole -- the frozen-but-plausible failure,
+    // and worse on a chart than on a readout because there is no dimming on a
+    // chart to carry the doubt.
+    bc.coolantC = 80.0f;
+    bc.coolantMs = t;
+    snapshotBuild(s, src, sl, bc, tr, ac, fs, 0, true, t);
+    CHECK_EQ((int)s.coolantC.age, (int)SNAP_FRESH);
+    lo = -1.0f;
+    hi = -1.0f;
+    CHECK(historyRange(s.hist, HIST_COOLANT, 0u, lo, hi));
+    CHECK_NEAR(lo, 80.0f, 0.05f);
+    CHECK_NEAR(hi, 80.0f, 0.05f);
+
+    bc.coolantC = 100.0f;                              // value moved...
+    bc.coolantMs = t - (VS_DEFAULT_TTL_MS + 1000u);    // ...but the frame is old
+    snapshotBuild(s, src, sl, bc, tr, ac, fs, 0, true, t + 100u);
+    CHECK_EQ((int)s.coolantC.age, (int)SNAP_HELD);
+    CHECK_NEAR(s.coolantC.v, 100.0f, 0.05f);           // still SHOWN, dimmed
+    lo = -1.0f;
+    hi = -1.0f;
+    CHECK(historyRange(s.hist, HIST_COOLANT, 0u, lo, hi));
+    CHECK_NEAR(hi, 80.0f, 0.05f);   // and NOT 100 -- the held reading stayed out
+
+    // ---- AN ABSENT READING LEAVES A HOLE -----------------------------------
+    // Nothing has ever reported volts, so that bucket has no range at all --
+    // which is what makes the chart draw nothing there rather than a zero.
+    lo = -1.0f;
+    hi = -1.0f;
+    CHECK(!historyRange(s.hist, HIST_VOLTS, 0u, lo, hi));
+    CHECK_NEAR(lo, -1.0f, 0.001f);   // out-params untouched on a miss
+    CHECK_NEAR(hi, -1.0f, 0.001f);
+
+    // ---- THE SNAPSHOT'S RING IS A COPY -------------------------------------
+    // Same contract as TripSet/AccelSet/FaultSet above: a published frame is
+    // internally consistent for ever, so a later build cannot reach back into
+    // one the renderer is still holding.
+    Snapshot older = s;
+    bc.coolantC = 95.0f;
+    bc.coolantMs = t + 200u;
+    snapshotBuild(s, src, sl, bc, tr, ac, fs, 0, true, t + 200u);
+    float nlo = 0.0f;
+    float nhi = 0.0f;
+    CHECK(historyRange(s.hist, HIST_COOLANT, 0u, nlo, nhi));
+    CHECK_NEAR(nhi, 95.0f, 0.05f);          // the live ring moved
+    lo = -1.0f;
+    hi = -1.0f;
+    CHECK(historyRange(older.hist, HIST_COOLANT, 0u, lo, hi));
+    CHECK_NEAR(hi, 80.0f, 0.05f);           // the older frame did not
   }
 
 TEST_MAIN_END()

@@ -187,8 +187,7 @@ static void stalledReaderCase(uint32_t stallMs) {
 }
 
 // ---------------------------------------------------------------------------
-// REAL STAMPS, out of
-//   jeep-can-b-logs/drive log - becici to school ... 2026-09-17_074126.log
+// REAL STAMPS, out of a recorded 25-minute drive capture.
 //
 // 288 consecutive frame stamps, records 8400..8687 of the clean prefix, a
 // stretch of ordinary driving that happens to contain a genuine 60 s rollover

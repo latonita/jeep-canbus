@@ -75,9 +75,8 @@
 // and over-advances the adapter clock by up to a minute. The offset estimate
 // then sees `host - adapter` fall by that same amount, and because it tracks the
 // MINIMUM it takes the new value immediately rather than creeping to it. One
-// sample, and the mapping is right again. The capture at
-// `jeep-can-b-logs/drive log ... 2026-09-17_074126.log` has exactly this event
-// in it, 613 frames in.
+// sample, and the mapping is right again. A recorded drive with
+// a mid-capture engine crank has exactly this event in it, 613 frames in.
 //
 // ---- WHERE THE TWO RULES TRADE, and they do ----------------------------
 //

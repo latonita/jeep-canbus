@@ -25,8 +25,7 @@
 // can be written and tested on their own.
 //
 // EVERY FIGURE BELOW IS MEASURED, and was re-measured while writing this file,
-// over `jeep-can-b-logs/drive log - becici to school on top of the steep hill
-// and back - 2026-09-17_074126.log` -- 2953 0x1B4 frames of one real drive --
+// over a recorded 25-minute drive -- 2953 0x1B4 frames --
 // plus an independent 1584-frame session from 2019 that agrees with all of it.
 //
 //  * DLC is 6 in 2953 of 2953. Period mean 502.8 ms, median 500 ms, and

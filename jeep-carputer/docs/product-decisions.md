@@ -18,10 +18,15 @@ dashboard and that settles them.
 - **There is deliberately NO idle timeout.** A page changes only when a finger
   changes it.
 
-## The six screens
+## The eight screens
 
-**DRIVE, TRIP, HEALTH, TYRES, ACCEL, SETTINGS** — six, not five. `UI_ACCEL` sits
-between the deliberate-reading cards and SETTINGS (`Ui.h`).
+**DRIVE, TRIP, COMPASS, HEALTH, TYRES, ACCEL, HISTORY, SETTINGS** — eight. This
+heading has said five, then six; COMPASS and HISTORY are what made it eight, and
+the order is the one in `UI_SCREEN_COUNT` (`Ui.h`), which is the only place it
+is written down as code.
+
+`UI_ACCEL` and `UI_HISTORY` both sit between the deliberate-reading cards and
+SETTINGS.
 
 DRIVE is index 0 and where the boot settles (`UI_HOME`). It used to sit second
 so it was reachable from either direction in one swipe; that was given up
@@ -92,3 +97,66 @@ this page must not make. The tap target is the 54×36 CELL, not the 41×16 glyph
 **Fuel price lives in SETTINGS**, default 2.01 €, adjusted with `-` / `+` rather
 than a cycle. Cost = litres × price, and it is the one readout whose accuracy is
 the driver's rather than the bus's.
+
+## History
+
+**FOUR PARAMETERS, ONE PLOTTED: FUEL FLOW, SPEED, COOLANT, BATTERY.** Chosen for
+having a TREND that says something the number cannot — coolant creeping up a
+climb, volts sagging across a drive, what the last quarter of an hour actually
+drank. Speed is there because it is what explains the shape of the other three.
+Ambient and tank level were both considered and dropped: neither moves enough in
+fifteen minutes to draw, and a chart that is always a flat line teaches the
+driver the page is broken.
+
+**FIFTEEN MINUTES, AS 45 BUCKETS OF 20 SECONDS.** The point count is set by
+PIXELS, not by time: the chart has to be 179 px wide because that is what the
+landscape left column affords, and at a 4 px pitch that is 45 columns. The
+window is then just 45 × the bucket length, and 20 s was chosen over 10 s
+(7.5 min, too short for a commute) and 40 s (30 min, more than one needs to
+answer "what just happened"). Storage is 720 bytes either way.
+
+**THE CHART IS THE SAME WIDTH IN BOTH BANDS.** Same argument as the compass
+tape, applied to time rather than heading: a chart that got wider when the
+bracket turned would change how much history a glance buys. Landscape is the
+narrow band, so it sets the width and portrait uses the result unchanged —
+carrying ~51 px of margin to its right, deliberately, with a full-width floor
+rule under the chart so it reads as placed rather than cut off.
+
+**EACH COLUMN IS A MIN-MAX RANGE, NOT A MEAN.** A mean hides the spike, and on
+speed and flow the spike is the information: a junction reads as a bar spanning
+0 to 60 rather than a flat 30. It also makes a coarse bucket cheap — what 20 s
+costs is *when inside those 20 s* something happened, not *whether* it did —
+which is what let the window be 15 minutes instead of 7.5 at the same width.
+
+**FIXED BANDS, PRINTED, NEVER AUTO-RANGED** (`kHistBand[]` in `core/History.h`):
+flow 0-50 L/h, speed 0-160 km/h, coolant 40-120 °C, volts 11-15 V. Same rule as
+the flow bar — a chart whose full scale moves means something different every
+time it is looked at. Coolant's floor is **40 and not 0** knowingly: the
+interesting band is 70-105 and starting at zero squeezes it into a third of the
+height, at the price of a cold start clipping to the floor for the first
+minutes.
+
+**ONLY FRESH READINGS ARE RECORDED, AND A GAP DRAWS NOTHING.** A held reading
+folded into a bucket would draw a flat line at the last known value for as long
+as the dropout lasted — hold-and-dim's failure mode, and worse on a chart than
+on a readout because there is no dimming to carry the doubt. An empty bucket
+draws no column at all, not a floor tick: zero km/h and zero L/h are both
+ordinary readings, so a mark on the floor could not be told from one.
+
+**IT CHARTS THE READOUT, NOT THE BUS.** The ring is fed from the resolved
+`Snapshot`, last thing in `snapshotBuild()`, so it inherits broadcast-beats-
+polled, the TTLs and the freshness rule without restating any of them. The
+history rides on the snapshot rather than through a second reader with a second
+lock, because five live pointers is exactly what that structure was built to
+replace.
+
+**FLOW IS CHARTED IN L/h, NOT IN THE SWITCHING UNIT.** `Snapshot::flow` changes
+between L/h and L/100km on a speed hysteresis, which is right for a hero readout
+that says what it is showing and useless for a fifteen-minute trace — half the
+window would be one quantity and half the other, against one scale, with no
+visible seam. `Snapshot::flowLph` is the same float taken one step earlier.
+
+**The history survives a palette swap and an orientation flip, and not a
+reboot.** It lives in `core/`, outside LVGL, so a tree teardown cannot touch it;
+it is never written to NVS, because a fifteen-minute window across an ignition
+cycle describes nothing.

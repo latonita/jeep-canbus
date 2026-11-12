@@ -2,7 +2,7 @@
 
 Car-puter for a 2005 Jeep Grand Cherokee WH (3.0 CRD / OM642, Bosch EDC16CP31)
 on a Waveshare ESP32-S3-Touch-LCD-2.8 (240×320 portrait, **V1 board → CST328
-touch**). Six screens, portrait and landscape toggled at runtime.
+touch**). Eight screens, portrait and landscape toggled at runtime.
 
 The companion repo `../jeep-aux-and-can-gateway/` is an ATmega328 in the radio:
 a **dumb frame pipe** with an ELM327-style AT surface
@@ -35,11 +35,11 @@ HOSTTEST_SAN=0 bash scripts/run-host-tests.sh   # ...without the sanitizers
 # desk testing with no car — emulates the 328 AND the modules behind it
 python scripts/emulate-car.py --port COM5                      # requests only
 python scripts/emulate-car.py --port COM5 --log playback --loop
-python scripts/emulate-car.py --port COM5 --log drive          # the real drive
+python scripts/emulate-car.py --port COM5 --log path/to/drive.log
 
 # gateway (ATmega328, ICSP via Arduino-as-ISP on COM19, radio must come out)
 cd ../jeep-aux-and-can-gateway && pio run -e promini
-"C:\Users\latonita\scoop\apps\avrdude\current\avrdude.exe" -c arduino_as_isp \
+avrdude -c arduino_as_isp \
   -p m328p -P COM19 -U flash:w:.pio\build\promini\firmware.hex:i
 ```
 
@@ -80,16 +80,7 @@ cd ../jeep-aux-and-can-gateway && pio run -e promini
 
 ## Where the rest is written down
 
-`.claude/rules/*.md` load automatically when you touch matching files —
-`build-and-toolchain`, `core-architecture`, `can-signals`, `link-and-gateway`,
-`ui-lvgl`, `ui-layout`, `faults-and-dtc`, `design-artboards`.
-
 - **Before changing what the instrument shows or how it behaves, read
   `docs/product-decisions.md`** — settled calls, several of them the owner's, not
   to be relitigated.
-- **`docs/open-questions.md`** — what is unverified, unmeasured, or waiting on a
-  drive, a receipt or an answer from the owner. Check it before claiming
-  something is broken.
-- **`D:\Repos\car\jeepdiag` is a KNOWN-WORKING diagnostic reference** against this
-  vehicle over this same gateway. When something diagnostic fails here, diff
-  against it before theorising.
+- CAN-B ids and signals: `../JEEP-WH-CRD-CAN-ID-byte-map.md`.

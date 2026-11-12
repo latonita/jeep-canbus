@@ -9,12 +9,11 @@ at a desk with no car, no radio and no 328.
 
     python scripts/emulate-car.py --port COM5
     python scripts/emulate-car.py --port COM5 --log playback --loop
-    python scripts/emulate-car.py --port COM5 --log drive        # the real one
+    python scripts/emulate-car.py --port COM5 --log path/to/drive.log
 
---log takes a NAME out of LOGS (below) or any path. `drive` is the owner's own
-25-minute timestamped drive, which lives outside this repo and is the closest
-thing to sitting in the truck; `playback` is the 2015 capture every measurement
-in CLAUDE.md was taken on.
+--log takes a NAME out of LOGS (below) or any path to a LAWICEL capture.
+`playback` is the capture every measurement in CLAUDE.md was taken on; a
+longer timestamped drive capture is the closest thing to sitting in the truck.
 
 The log is OPTIONAL now. Without it there are no broadcasts (speed, rpm, flow
 and the trips stay dashed) but every request/response page works -- which is
@@ -695,17 +694,9 @@ class Emulator(object):
 #
 #   playback  the 2015 capture: 841 s, 126k frames, no engine-crank restart.
 #             What every measurement in CLAUDE.md was taken on.
-#   drive     the owner's own 25 min drive, 2026-09-17: 224,709 frames over
-#             1484.9 s, 48 ids, stamped throughout, and it carries the mid-
-#             capture stamp RESTART (34742 -> 7709, the crank a few hundred
-#             frames in) that unwrap() has to tell from a rollover. Not copied
-#             into the repo -- a quarter of a million lines does not belong in
-#             a firmware tree, and it is one owner's drive, not a fixture.
 LOGS = {
     "playback": os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "playback.log"),
-    "drive": r"D:\Repos\car\jeep-can-b-logs\drive log - becici to school"
-             r" on top of the steep hill and back - 2026-09-17_074126.log",
 }
 
 
@@ -714,17 +705,16 @@ def resolve_log(name):
 
     Both halves are checked HERE rather than left to open(): a mistyped name is
     a likely mistake now that names exist, and the two ways it used to surface
-    were both bad. A name that is in the table but whose file is missing -- the
-    drive log lives outside this repo, so a fresh clone has the name and not
-    the file -- would have read as an empty capture; anything else fell through
+    were both bad. A name that is in the table but whose file is missing would have
+    read as an empty capture; anything else fell through
     to a FileNotFoundError traceback, which buries "you typed drve" under a
     stack.
     """
     if name in LOGS:
         path = LOGS[name]
         if not os.path.exists(path):
-            sys.exit("--log %s names %s, which is not there. That capture "
-                     "lives outside this repo; pass a path instead."
+            sys.exit("--log %s names %s, which is not there; "
+                     "pass a path instead."
                      % (name, path))
         return path
     if not os.path.exists(name):

@@ -109,9 +109,8 @@ docs/               see below
   command table, response conventions, why `ATCAF0` matters, and how flow control works
   (with a worked multi-frame example). Enough to drive the board from a plain serial
   terminal.
-* [docs/CAN-B-CAPABILITIES.md](docs/CAN-B-CAPABILITIES.md) and
-  [docs/CAN-IHS-MAP.md](docs/CAN-IHS-MAP.md) -- what the interior bus exposes and the
-  decoded id map.
+* [JEEP-WH-CRD-CAN-ID-byte-map.md](../JEEP-WH-CRD-CAN-ID-byte-map.md) -- the decoded
+  CAN-B id map.
 * ICSP flashing notes -- inline in `platformio.ini` (pin table, the ICSP-RESET errata,
   the avrdude 8.2 requirement, and reading the device signature to verify wiring before a
   flash).

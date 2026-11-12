@@ -42,7 +42,7 @@
     },
     {
       "file": "Settings.dc.html",
-      "title": "6 / SETTINGS  (5 / ACCEL has no board)",
+      "title": "7 / SETTINGS  (5 / ACCEL has no board)",
       "x": 1600,
       "y": 0,
       "w": 240,
@@ -130,7 +130,7 @@
     },
     {
       "file": "Settings.landscape.dc.html",
-      "title": "L6 / SETTINGS  (L5 / ACCEL has no board)",
+      "title": "L7 / SETTINGS  (L5 / ACCEL has no board)",
       "x": 2000,
       "y": 1250,
       "w": 320,
@@ -180,6 +180,22 @@
       "file": "Compass.landscape.dc.html",
       "title": "L2 / COMPASS",
       "x": 800,
+      "y": 1250,
+      "w": 320,
+      "h": 240
+    },
+    {
+      "file": "History.dc.html",
+      "title": "6 / HISTORY",
+      "x": 1920,
+      "y": 0,
+      "w": 240,
+      "h": 320
+    },
+    {
+      "file": "History.landscape.dc.html",
+      "title": "L6 / HISTORY",
+      "x": 2400,
       "y": 1250,
       "w": 320,
       "h": 240

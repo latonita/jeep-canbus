@@ -15,7 +15,8 @@ import io, json, re
 # after that was swapped on the owner's instruction, and COMPASS was new.
 # ACCEL is still absent because it has never had a board.
 SCREENS = ["Splash.dc.html", "Main.dc.html", "Trip.dc.html", "Compass.dc.html",
-           "Health.dc.html", "Tyres.dc.html", "Settings.dc.html",
+           "Health.dc.html", "Tyres.dc.html", "History.dc.html",
+           "Settings.dc.html",
            "ConfirmReset.dc.html", "TyresUnmapped.dc.html", "Faults.dc.html",
            "Alert.dc.html", "Tilt.dc.html"]
 

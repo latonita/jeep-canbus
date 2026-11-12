@@ -39,6 +39,7 @@
 #include "Accel.h"
 #include "Broadcast.h"
 #include "Faults.h"
+#include "History.h"
 #include "Trip.h"
 #include "VehicleState.h"
 
@@ -129,7 +130,7 @@ static inline bool snapLive(const SnapVal& s) { return s.age == SNAP_FRESH; }
 
 // ---- The flow readout ----------------------------------------------------
 //
-// 0x1A7 is a rate in known units -- L/h = Q/160 -- so unlike the first version
+// 0x1A7 is a rate in known units -- L/h = Q/128 -- so unlike the first version
 // of this screen the bar CAN be scaled to something real and CAN carry a number
 // beside it.
 //
@@ -282,12 +283,44 @@ struct Snapshot {
   SnapVal flow;
   bool    flowPerDistance;
   bool    flowCrit;
+
+  // THE SAME RATE, IN L/h, WITH THE UNIT SWITCH NOT APPLIED. Fed straight from
+  // tripFlowLph() before the hysteresis above gets to it.
+  //
+  // It exists for the HISTORY chart and for nothing else, and the reason is
+  // that `flow` above CHANGES UNIT partway through a drive. That is right for
+  // a hero readout, which says what it is showing beside the number -- and it
+  // is useless for a fifteen-minute trace, where half the window would be
+  // litres per hour and half litres per hundred kilometres, against one fixed
+  // scale, with no way to see the seam. A chart needs ONE quantity for the
+  // whole window, so it gets the one that is defined at a standstill too.
+  //
+  // Not a second source and not a second reading: it is the same float, taken
+  // one step earlier. SNAP_FRESH whenever tripFlowLph() answered at all,
+  // SNAP_ABSENT when it did not, which is exactly what `flow` does -- see the
+  // note there about staleness being the TRIP_MAX_GAP_MS cutoff rather than a
+  // TTL.
+  SnapVal flowLph;
   // 0..UI_FLOW_SEGS. ZERO whenever flowPerDistance is false: a fixed L/100
   // scale can only show L/100, and stopped there is no distance to divide by.
   // The readout says "1.2 L/h" and the bar says nothing, which is the honest
   // pair -- the alternative was drawing an L/h value against an L/100 scale,
   // which is exactly what was wrong before.
   uint8_t flowSegs;
+
+  // --- the fifteen-minute window ------------------------------------------
+  // The HISTORY page's four rings, copied WHOLESALE like TripSet/AccelSet/
+  // FaultSet above and for the same reason: the copy is what buys the
+  // consistency. The chart and the four cells beside it are then drawn from
+  // one instant, so a column cannot disagree with the number above it.
+  //
+  // 728 bytes, which is the largest single thing in here. It is carried on the
+  // snapshot rather than handed to the renderer through a second reader with a
+  // second lock, because five live pointers is precisely what this structure
+  // was built to replace -- see the header comment. The cost is a bigger
+  // memcpy under gSnapLock, still microseconds, and the alternative is a
+  // second publication boundary nobody would remember to keep in step.
+  History hist;
 
   // --- link / bus ---------------------------------------------------------
   uint32_t frames;       // cumulative frame counter, for the bus-rate readout
@@ -303,6 +336,16 @@ struct Snapshot {
 // flicker.
 struct SnapshotSource {
   bool flowPerDistance;
+
+  // THE LIVE RING. `Snapshot::hist` is a copy of this one, taken at the end of
+  // every build; this is the copy that accumulates.
+  //
+  // It lives here because this structure is already defined as the state the
+  // builder carries between builds, and a fifteen-minute window is nothing but
+  // that. Keeping it here rather than as a static inside snapshotBuild() is
+  // what lets a host test drive a whole drive through it and assert the shape
+  // that comes out -- the same argument the flow hysteresis above is here for.
+  History hist;
 };
 
 void snapshotSourceInit(SnapshotSource& src);

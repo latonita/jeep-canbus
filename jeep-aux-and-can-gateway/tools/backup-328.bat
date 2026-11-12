@@ -15,7 +15,8 @@ setlocal enabledelayedexpansion
 ::         tools\backup-328.bat arduino_as_isp COM5   (Arduino Mega as ISP)
 ::
 
-set "AVRDUDE=C:\Users\latonita\scoop\apps\avrdude\current\avrdude.exe"
+set "AVRDUDE="
+for /f "delims=" %%i in ('where avrdude 2^>nul') do if not defined AVRDUDE set "AVRDUDE=%%i"
 :: Programmer: ttl232r = FT232R bitbang (default), arduino_as_isp = Arduino/Mega
 :: running the ArduinoISP sketch. The latter needs a COM port as arg 2.
 set "PROG=%~1"
@@ -30,9 +31,8 @@ set "PART=m328p"
 :: If reads are unreliable, slow the bit clock: set BITCLOCK=-B 8
 set "BITCLOCK="
 
-if not exist "%AVRDUDE%" (
-  echo ERROR: avrdude not found at:
-  echo   %AVRDUDE%
+if not defined AVRDUDE (
+  echo ERROR: avrdude not found on PATH.
   echo.
   echo Install it with:  scoop install avrdude
   echo The Arduino IDE's avrdude will NOT work -- it has no FTDI support built in.

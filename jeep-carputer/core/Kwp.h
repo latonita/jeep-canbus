@@ -80,7 +80,7 @@ uint8_t kwpParseDtcList(const KwpResponse& response, DtcRecord* out, uint8_t cap
 // bytes. Returns false if the code cannot be rendered.
 //
 // IMPORTANT for whoever implements this: do not guess the letter derivation.
-// D:\Repos\car\extracted\dtc_codes.csv contains 1152 rows with BOTH
+// The vendor dtc_codes.csv contains 1152 rows with BOTH
 // raw_code_hex_2byte and sae_code, so the mapping can be derived from real data
 // and then verified against every one of those pairs in a unit test.
 bool kwpDtcToSae(uint16_t code, char* buf, uint8_t cap);

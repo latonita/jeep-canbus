@@ -20,6 +20,7 @@
 #include "Accel.h"
 #include "Compass.h"
 #include "Faults.h"
+#include "History.h"
 #include "SignalDb.h"
 #include "Broadcast.h"
 #include "Trip.h"
@@ -320,6 +321,66 @@ static const char* TAG = "ui";
 // A name box wide enough for the two-letter ordinals at the near scale.
 #define UI_DIAL_NAME_W  26
 
+// ---- the HISTORY page's chart ----------------------------------------------
+//
+// ONE COLUMN PER BUCKET, EACH SPANNING THAT BUCKET'S MIN TO MAX. Not a line,
+// not a bar rising from the floor: a floating rectangle from the lowest to the
+// highest reading in its twenty seconds. The reason is in core/History.h -- a
+// mean hides the spike, and on speed and flow the spike is the information.
+// It costs nothing to draw, because a floating rectangle is the same single
+// object a bar from the floor would have been.
+//
+// THE CHART IS THE SAME WIDTH IN BOTH BANDS, and that is the compass tape's
+// argument applied to time rather than to heading: a chart that got wider when
+// the bracket turned would change how much history a glance buys, which is the
+// one thing about it that must not move. 179 px is what the LANDSCAPE left
+// column affords (187 px of content), so landscape sets it and portrait uses
+// the result unchanged -- the same way the TRIP selector is sized by the
+// narrow band. Portrait therefore carries ~51 px of margin to the right of the
+// chart. That is deliberate, and the full-width floor rule under it is what
+// stops it reading as a truncated graphic rather than a placed one.
+//
+// 45 columns at a 4 px pitch: 3 px of bar and 1 px of gap. 2 px bars read as
+// noise rather than as bars, and 60 of them would be 15 more objects on a page
+// whose pool headroom is not measured.
+#define UI_HIST_PITCH 4
+#define UI_HIST_BAR   3
+// x=10 in BOTH bands without a conditional, because UI_PAD - 2 and UI_LS_PAD
+// are both 10. Spelled as a literal precisely so that it does not silently
+// follow one of them if that one ever moves alone.
+#define UI_HIST_X     10
+#define UI_HIST_Y     30
+#define UI_HIST_W     (HIST_BUCKETS * UI_HIST_PITCH - (UI_HIST_PITCH - UI_HIST_BAR))
+// 104, and it is PORTRAIT that sets it, unlike the width.
+//
+// Derived downward from the dot rail: the dots sit at page-local 278, the
+// lower pair of cells occupies y..y+55 and the two pairs are 60 apart (the
+// spacing TRIP and HEALTH already use), so the first rule can be no lower than
+// 158 if the last value is to clear the rail by 5 px. Back off 4 px of gap,
+// a 16 px footer line and another 4, and the chart floor lands at 134.
+// Landscape is not the constraint here and carries ~64 px of air below the
+// footer, which is ordinary for that band -- TRIP's left column has ~76.
+#define UI_HIST_H     104
+#define UI_HIST_FLOOR (UI_HIST_Y + UI_HIST_H)
+#define UI_HIST_FOOT  (UI_HIST_FLOOR + 4)
+// The portrait cell pairs. 60 apart, bottom at 273, dot rail at 278.
+#define UI_HIST_P_ROW0 158
+#define UI_HIST_P_ROW1 (UI_HIST_P_ROW0 + 60)
+
+// THE TWO DERIVATIONS ABOVE, ENFORCED RATHER THAN DESCRIBED.
+//
+// Both are the couplings that would otherwise be a comment somebody edits
+// around -- the width belongs to the landscape column and the height belongs
+// to the portrait dot rail, and neither page can see the other's constraint.
+// The panel is 240x320 and always will be, so both are constant expressions
+// even though UI_W and UI_H are not (they resolve to the live orientation).
+static_assert(UI_HIST_X + UI_HIST_W <= 320 - 1 - UI_LS_RIGHT_W - UI_LS_PAD,
+              "HISTORY chart overruns the landscape column rule");
+// buildPair() occupies y .. y+55, and the page dots sit at UI_H - 16, which is
+// page-local once the status bar comes off.
+static_assert(UI_HIST_P_ROW1 + 55 < 320 - 16 - UI_STATUSBAR_H,
+              "HISTORY portrait cells overlap the page dots");
+
 // ---- the link icon ---------------------------------------------------------
 //
 // ONE RING WITH A DASH THROUGH IT, crossed out in the critical colour when the
@@ -501,6 +562,44 @@ static float fuelPrice(void) { return (float)s_priceCents / 100.0f; }
 
 // Which trip the TRIP page is currently showing. One tap swaps it.
 static uint8_t s_tripShown = TRIP_A;
+
+// Which parameter the HISTORY page is plotting. One tap on a cell swaps it.
+//
+// FLOW is the landing choice because it is the one of the four with no other
+// home on the instrument -- speed, coolant and volts are all a glance away on
+// DRIVE or HEALTH, and what the last quarter of an hour drank is not.
+static uint8_t s_histShown = HIST_FLOW;
+
+// WHAT IS ACTUALLY ON THE GLASS, which is not the same as what the snapshot
+// says -- the same obligation s_flowLit and s_compDrawn carry, and it must be
+// cleared in buildRoot() for the same reason. A palette swap or a flip builds
+// a fresh set of hidden bars; left agreeing with a stale cache they would
+// never be placed, and the chart would stay empty until the head bucket
+// happened to roll.
+//
+// 0xFF is "nothing drawn yet", which no real parameter or head index can be.
+static uint8_t  s_histDrawnParam = 0xFFu;
+static uint8_t  s_histDrawnHead  = 0xFFu;
+// THE HEAD INDEX IS NOT ENOUGH ON ITS OWN, and this is the second variable
+// rather than a cleverer comparison because the case it covers is real.
+//
+// `head` is an index into 45 slots, so it REPEATS. Two things make it come
+// back round to a value the gate has already seen while every bucket under it
+// has been replaced: a full lap of the ring (45 advances), and
+// historyTick()'s window-cap path, which wipes the ring and resets head to 0.
+// Either one, landing on the last-drawn index, leaves the gate saying nothing
+// moved while the chart shows 44 columns of data that no longer exists.
+//
+// `headMs` cannot repeat like that -- it steps by HIST_BUCKET_MS per advance
+// and is set to `nowMs` by the cap -- so comparing it closes both. It costs
+// one uint32 compare per frame. Reaching a lap or a cap needs a 15-minute gap
+// between ticks, which a healthy carTask does not produce; that is an argument
+// for it being RARE, not for it being impossible, and "something else would
+// have failed first" is not a correctness argument.
+static uint32_t s_histDrawnHeadMs = 0u;
+static bool    s_histDrawnHas   = false;
+static float   s_histDrawnLo    = 0.0f;
+static float   s_histDrawnHi    = 0.0f;
 static lv_display_t* s_disp = nullptr;
 static lv_obj_t* s_root = nullptr;
 static lv_obj_t* s_pages = nullptr;   // the horizontal scroller
@@ -685,6 +784,16 @@ static struct {
   lv_obj_t* dialTrip;
   lv_obj_t* dialTripCap;  // landscape only -- names which meter
   lv_obj_t* dialTemp;
+  // HISTORY page. The bar pool is the biggest single array on the instrument
+  // and every member of it is built once, then only moved, resized and hidden
+  // -- the pattern refreshDial() uses, for the same reason: allocating inside
+  // a refresh is how the fixed pool gets found at the worst possible moment.
+  lv_obj_t* histBar[HIST_BUCKETS];
+  lv_obj_t* histTitle;              // names the selected parameter
+  lv_obj_t* histFoot;               // the fixed band the chart is drawn against
+  lv_obj_t* histCap[HIST_COUNT];
+  lv_obj_t* histVal[HIST_COUNT];
+  lv_obj_t* histMark[HIST_COUNT];   // the 3 px edge on the selected cell
   lv_obj_t* tripSeg[TRIP_COUNT];   // the TRIP A / TRIP B / START selector
   lv_obj_t* tripSegUl;             // the 2 px underline under the active one
   lv_obj_t* setInvertState;
@@ -989,7 +1098,20 @@ static void buildStatusBar(lv_obj_t* root) {
 // thing that can be handed back to the content.
 static void buildDots(lv_obj_t* root) {
   const lv_coord_t d = 5;
-  const lv_coord_t step = 12;
+  // THE PITCH IS PER BAND, and this is forced by the eighth page rather than
+  // chosen -- the second thing the two bands are allowed to disagree about on
+  // this rail, for the same reason as the first.
+  //
+  // Landscape's rail shares the status bar with the compass tape, which ends
+  // at x = UI_COMPASS_X + UI_COMPASS_W = 210. At a 12 px pitch eight dots span
+  // 89 and would start at 196 -- fourteen pixels inside the tape. The tape
+  // cannot give the width back: ONE GEOMETRY FOR BOTH BANDS is what makes a
+  // degree worth the same glance either way up, and it has already paid 4 px
+  // once, to the link icon. So the dots close up instead: 10 px still leaves
+  // 5 px of gap between 5 px dots, which reads as a row rather than a dash.
+  //
+  // Portrait has a rail of its own and 240 px to centre 89 in, so it keeps 12.
+  const lv_coord_t step = s_landscape ? 10 : 12;
   const lv_coord_t span = UI_SCREEN_COUNT * step - (step - d);
   // PORTRAIT centres them on a rail of their own at the foot of the screen.
   //
@@ -998,11 +1120,17 @@ static void buildDots(lv_obj_t* root) {
   // So they move right, into the space the "LINK" legend vacated, and the bar
   // reads left to right as time, heading, where you are, link health.
   //
-  // 35 px off the right edge puts the last dot at UI_W-35, and the link icon
-  // starts at UI_W-21 -- 14 px of gap, enough that the dots do not read as part
-  // of the icon, or as a tail on the compass tape the other side of them.
+  // The margin and the pitch are both below, and both moved when the eighth
+  // page arrived. What has not moved is the intent: enough gap that the dots
+  // do not read as part of the link icon, or as a tail on the compass tape the
+  // other side of them.
+  // 28, not 35. The margin came in with the pitch: at 10 px the span is 75,
+  // so 28 puts the first dot at 217 (7 px clear of the tape) and the last one
+  // ending at 292, 7 px clear of the link icon at UI_W - 21. The two gaps are
+  // equal, which is the arrangement that reads as three things in a row rather
+  // than as a crowded one.
   const lv_coord_t x0 = s_landscape
-                            ? static_cast<lv_coord_t>(UI_W - 35 - span)
+                            ? static_cast<lv_coord_t>(UI_W - 28 - span)
                             : static_cast<lv_coord_t>((UI_W - span) / 2);
   const lv_coord_t y = s_landscape
                            ? static_cast<lv_coord_t>((UI_LS_STATUSBAR_H - d) / 2)
@@ -2343,6 +2471,212 @@ static void buildAccelLs(lv_obj_t* page) {
   // got there, which a stranded unit would have sat next to looking broken.
   mkRule(page, 22, 0, UI_W);
   buildAccelRows(page, UI_LS_PAD, 150, 240, 30, 50, 54);
+}
+
+// ---- HISTORY ---------------------------------------------------------------
+//
+// FOUR PARAMETERS, ONE PLOTTED. The four cells are live readouts as well as a
+// selector, which is the whole reason they carry a value: a selector of four
+// bare words would spend a third of the page saying nothing, and the page has
+// to be worth looking at before you have tapped anything.
+//
+// The cells are the SAME FOUR in the same order in both bands -- landscape
+// stacks them down the right column as four mkStackRow()s, exactly as TRIP
+// does, and portrait lays them out as a 2x2 of buildPair()s at the foot. That
+// is not two designs: it is the same rearrangement every page on this
+// instrument makes when the bracket turns, and nothing is dropped, added or
+// reordered by it. Both shapes read 1, 2, 3, 4 in the same direction.
+//
+// No new layout primitive was needed for either, which is the test that the
+// arrangement is the house one rather than an invention.
+static const char* const kHistName[HIST_COUNT] = {
+    "FUEL FLOW", "SPEED", "COOLANT", "BATTERY",
+};
+static const char* const kHistUnit[HIST_COUNT] = {
+    "L/h", "km/h", UI_DEG "C", "V",
+};
+// kHistBand[] in words, for the footer. Written out rather than formatted from
+// the floats, because a scale is called "0 - 50", not the "0.0 - 50.0" a %.1f
+// would have made of it -- and formatting it would spend a snprintf per
+// refresh saying something that changes only on a tap. The two must be kept in
+// step by hand; test_history asserts the numbers, so a band that moves without
+// its caption is one failing test away from being noticed.
+static const char* const kHistFoot[HIST_COUNT] = {
+    "0 - 50 L/h", "0 - 160 km/h", "40 - 120 " UI_DEG "C", "11 - 15 V",
+};
+// MEASURED, from adv_w in src/fonts/font_digits_30.c, against the 92 px
+// landscape cell with its unit right-aligned to the column edge:
+//   FLOW     "48.2" 62.4 + "L/h"  21.9 -> 84.4
+//   SPEED     "188" 47.2 + "km/h" 33.5 -> 80.7  (worst digits "888" = 54.0)
+//   COOLANT   "108" 47.9 + degC   14.4 -> 62.3  (worst "-40" = 50.7)
+//   BATTERY  "14.2" 62.4 + "V"     8.4 -> 70.8
+// Speed is the tight one and still clears by 4.5 px at its worst string.
+// Portrait's cells are 100 px, so anything that fits landscape fits there.
+static const uint8_t kHistDec[HIST_COUNT] = {1u, 0u, 0u, 1u};
+
+// Light the selected cell and move the chart's name and scale to it. Named the
+// way setTripTitle() is, and meaning the same thing: "the shown parameter
+// changed, say so".
+static void setHistSelected(void) {
+  for (uint8_t i = 0u; i < (uint8_t)HIST_COUNT; ++i) {
+    if (W.histCap[i] != nullptr) {
+      lv_obj_set_style_text_color(W.histCap[i],
+                                  (i == s_histShown) ? UI_PRIMARY : UI_LABEL, 0);
+    }
+    if (W.histMark[i] != nullptr) {
+      if (i == s_histShown) {
+        lv_obj_remove_flag(W.histMark[i], LV_OBJ_FLAG_HIDDEN);
+      } else {
+        lv_obj_add_flag(W.histMark[i], LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+  }
+  if (W.histTitle != nullptr) {
+    setTextIfChanged(W.histTitle, kHistName[s_histShown]);
+  }
+  if (W.histFoot != nullptr) {
+    setTextIfChanged(W.histFoot, kHistFoot[s_histShown]);
+  }
+  // The columns now describe a different parameter against a different band,
+  // so every one of them has to be replaced -- not just the newest. 0xFF is
+  // what the refresh reads as "you have drawn nothing".
+  s_histDrawnParam = 0xFFu;
+}
+
+static void onHistCellTap(lv_event_t* e) {
+  if (tapIsDrag()) {
+    return;   // a swipe that began on a cell, not a tap
+  }
+  const uint8_t i = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+  if (i >= (uint8_t)HIST_COUNT || i == s_histShown) {
+    return;
+  }
+  s_histShown = i;
+  setHistSelected();   // the columns follow on the next refresh tick
+}
+
+// The chart itself, identical in both bands. Built hidden and never created or
+// destroyed again; refreshHistory() only ever moves, resizes and hides.
+static void buildHistChart(lv_obj_t* page) {
+  for (uint8_t i = 0u; i < (uint8_t)HIST_BUCKETS; ++i) {
+    lv_obj_t* b = lv_obj_create(page);
+    stripChrome(b);
+    lv_obj_set_size(b, UI_HIST_BAR, 1);
+    lv_obj_set_pos(b, static_cast<lv_coord_t>(UI_HIST_X + i * UI_HIST_PITCH),
+                   static_cast<lv_coord_t>(UI_HIST_FLOOR - 1));
+    lv_obj_set_style_bg_color(b, UI_PRIMARY, 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+    W.histBar[i] = b;
+  }
+
+  // The floor spans the CONTENT width, not the chart's 179. In portrait that
+  // is the whole panel, which is what stops a 179 px graphic in a 240 px band
+  // reading as though it had been cut off.
+  mkRule(page, UI_HIST_FLOOR, 0, s_landscape ? UI_LS_DIV_X : UI_W);
+  W.histFoot = mkLabel(page, kHistFoot[s_histShown], UI_FONT_LABEL, UI_FAINT,
+                       UI_HIST_X, UI_HIST_FOOT);
+
+  // The window, right-aligned to the CONTENT edge rather than through
+  // buildHeader()'s `note`. That helper aligns to the parent, which is the
+  // whole page -- right in portrait, and in landscape it would put the word
+  // across the column rule and on top of the first cell's caption.
+  mkRightLabel(page, "15 MIN", UI_FONT_LABEL, UI_LABEL,
+               s_landscape ? UI_LS_L_R
+                           : static_cast<lv_coord_t>(UI_W - (UI_PAD - 2)),
+               5);
+}
+
+// One cell's selection marker and its tap target.
+//
+// THE MARKER IS A 3 PX EDGE, not an underline under the caption, and that is
+// forced rather than chosen: mkStackRow() leaves only 13 px between a
+// caption's top and its value's baseline, so TRIP's underline at caption + 19
+// would be drawn through the digits. An edge beside the cell says the same
+// thing in space the layout actually has, and it is the idiom the FAULTS
+// landscape rows use for their state.
+//
+// The target is the whole CELL, built last so the tap lands here rather than
+// on a label -- this gets used one-handed over broken tarmac, and a
+// caption-sized target would be 16 px tall.
+static void mkHistCell(lv_obj_t* page, uint8_t i, lv_coord_t capX,
+                       lv_coord_t capY, lv_coord_t blockH, lv_coord_t hitX,
+                       lv_coord_t hitY, lv_coord_t hitW, lv_coord_t hitH) {
+  lv_obj_t* m = lv_obj_create(page);
+  stripChrome(m);
+  lv_obj_set_size(m, 3, blockH);
+  lv_obj_set_pos(m, static_cast<lv_coord_t>(capX - 6), capY);
+  lv_obj_set_style_bg_color(m, UI_PRIMARY, 0);
+  lv_obj_set_style_bg_opa(m, LV_OPA_COVER, 0);
+  lv_obj_add_flag(m, LV_OBJ_FLAG_HIDDEN);
+  W.histMark[i] = m;
+
+  lv_obj_t* hit = lv_obj_create(page);
+  stripChrome(hit);
+  lv_obj_set_size(hit, hitW, hitH);
+  lv_obj_set_pos(hit, hitX, hitY);
+  lv_obj_add_flag(hit, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(hit, onHistCellTap, LV_EVENT_CLICKED,
+                      (void*)(uintptr_t)i);
+}
+
+static void buildHistory(lv_obj_t* page) {
+  W.histTitle = buildHeader(page, kHistName[s_histShown], nullptr);
+  buildHistChart(page);
+
+  buildPair(page, UI_HIST_P_ROW0, kHistName[HIST_FLOW], kHistName[HIST_SPEED],
+            &W.histVal[HIST_FLOW], &W.histVal[HIST_SPEED], kHistUnit[HIST_FLOW],
+            kHistUnit[HIST_SPEED], &W.histCap[HIST_FLOW],
+            &W.histCap[HIST_SPEED]);
+  buildPair(page, UI_HIST_P_ROW1, kHistName[HIST_COOLANT],
+            kHistName[HIST_VOLTS], &W.histVal[HIST_COOLANT],
+            &W.histVal[HIST_VOLTS], kHistUnit[HIST_COOLANT],
+            kHistUnit[HIST_VOLTS], &W.histCap[HIST_COOLANT],
+            &W.histCap[HIST_VOLTS]);
+
+  // buildPair()'s own coordinates: captions at the rule + 5, x at the pad and
+  // at the half-panel. The marked block runs from the caption's top to the
+  // value's bottom, which is 50 px.
+  const lv_coord_t capL = UI_PAD - 2;
+  const lv_coord_t capR = UI_W / 2 + UI_PAD - 2;
+  const lv_coord_t half = UI_W / 2;
+  mkHistCell(page, HIST_FLOW, capL, UI_HIST_P_ROW0 + 5, 50, 0, UI_HIST_P_ROW0,
+             half, 56);
+  mkHistCell(page, HIST_SPEED, capR, UI_HIST_P_ROW0 + 5, 50, half,
+             UI_HIST_P_ROW0, half, 56);
+  mkHistCell(page, HIST_COOLANT, capL, UI_HIST_P_ROW1 + 5, 50, 0,
+             UI_HIST_P_ROW1, half, 56);
+  mkHistCell(page, HIST_VOLTS, capR, UI_HIST_P_ROW1 + 5, 50, half,
+             UI_HIST_P_ROW1, half, 56);
+
+  setHistSelected();
+}
+
+// HISTORY, turned. The four cells become the right-hand stack, which is four
+// rows of 53/53/53/56 in 218 px -- the same division TRIP's landscape stack
+// already uses, arrived at here independently and then found to be identical,
+// because the band only divides one way.
+static void buildHistoryLs(lv_obj_t* page) {
+  mkVRule(page, UI_LS_DIV_X, 0, UI_PAGE_H);
+  W.histTitle = buildHeader(page, kHistName[s_histShown], nullptr);
+  buildHistChart(page);
+
+  static const lv_coord_t kRowY[HIST_COUNT] = {0, 54, 108, 162};
+  static const lv_coord_t kRowH[HIST_COUNT] = {53, 53, 53, 56};
+  for (uint8_t i = 0u; i < (uint8_t)HIST_COUNT; ++i) {
+    mkStackRow(page, kRowY[i], kRowH[i], kHistName[i], &W.histVal[i],
+               kHistUnit[i], i != ((uint8_t)HIST_COUNT - 1u), &W.histCap[i]);
+    // mkStackRow()'s own centring: a 48 px block in whatever height the row
+    // was given. Repeated here rather than returned, because the marker has to
+    // line up with type that the row placed.
+    const lv_coord_t top =
+        static_cast<lv_coord_t>(kRowY[i] + (kRowH[i] - 48) / 2);
+    mkHistCell(page, i, UI_LS_R_L, top, 48,
+               static_cast<lv_coord_t>(UI_LS_DIV_X + 1), kRowY[i],
+               UI_LS_RIGHT_W, kRowH[i]);
+  }
+
+  setHistSelected();
 }
 
 // Seconds to one decimal, or a dash when the run never got there.
@@ -4183,6 +4517,117 @@ static void refreshDial(void) {
   }
 }
 
+// ---- the HISTORY chart -----------------------------------------------------
+
+// One reading to a row of pixels, against the parameter's FIXED band.
+//
+// Clamped at both ends rather than auto-ranged, and the clamp is visible: a
+// value past the ceiling draws a bar that touches the top, which is the honest
+// picture of "off this scale" and the same thing the flow bar does when it
+// pegs. Auto-ranging would make the shape of a drive depend on the worst
+// second in it.
+static lv_coord_t histY(const HistBand& band, float v) {
+  const float span = band.hi - band.lo;
+  float t = (span > 0.0f) ? ((v - band.lo) / span) : 0.0f;
+  if (t < 0.0f) {
+    t = 0.0f;
+  }
+  if (t > 1.0f) {
+    t = 1.0f;
+  }
+  const int32_t up =
+      static_cast<int32_t>(t * static_cast<float>(UI_HIST_H - 1) + 0.5f);
+  return static_cast<lv_coord_t>(UI_HIST_Y + (UI_HIST_H - 1) - up);
+}
+
+// Place one column. `col` is left to right, `age` is newest to oldest, so the
+// newest bucket is drawn at the RIGHT-hand end -- time runs the way it is read.
+static void histBarPlace(uint8_t col, uint8_t param, uint8_t age) {
+  lv_obj_t* b = W.histBar[col];
+  if (b == nullptr) {
+    return;
+  }
+  float lo = 0.0f;
+  float hi = 0.0f;
+  if (!historyRange(s_snap.hist, param, age, lo, hi)) {
+    // NOTHING, not a floor tick. An empty bucket means no fresh reading
+    // arrived in those twenty seconds, and a hole in the trace is what that
+    // looks like. A mark on the floor would be indistinguishable from a real
+    // reading at the bottom of the band -- zero km/h and zero L/h are both
+    // perfectly ordinary readings, which is exactly why the gap has to be
+    // empty rather than low.
+    lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  const lv_coord_t yTop = histY(kHistBand[param], hi);
+  const lv_coord_t yBot = histY(kHistBand[param], lo);
+  lv_coord_t h = static_cast<lv_coord_t>(yBot - yTop + 1);
+  if (h < 1) {
+    h = 1;   // a bucket whose min and max round to one row is still a reading
+  }
+  lv_obj_set_pos(b, static_cast<lv_coord_t>(UI_HIST_X + col * UI_HIST_PITCH),
+                 yTop);
+  lv_obj_set_size(b, UI_HIST_BAR, h);
+  lv_obj_remove_flag(b, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void refreshHistory(void) {
+  if (W.histBar[0] == nullptr) {
+    return;   // the page is not built in this orientation yet
+  }
+
+  // The four cells, every tick. setSnap() gates on the rendered string, so an
+  // unchanged number costs a snprintf and a strcmp and touches no pixels.
+  setSnap(W.histVal[HIST_SPEED], s_snap.speedKph, kHistDec[HIST_SPEED]);
+  setSnap(W.histVal[HIST_COOLANT], s_snap.coolantC, kHistDec[HIST_COOLANT]);
+  setSnap(W.histVal[HIST_VOLTS], s_snap.volts, kHistDec[HIST_VOLTS]);
+  // THE DECIMAL RULE, the one refreshDrive() uses and for the same measured
+  // reason: "108.2" is 80.5 px in a 92 px landscape cell and would be drawn
+  // under the unit. An OM642 cannot reach 100 L/h, so this only ever fires on
+  // a number that is already wrong -- which is precisely when a readout must
+  // not also take the layout with it.
+  setSnap(W.histVal[HIST_FLOW], s_snap.flowLph,
+          (snapShow(s_snap.flowLph) && s_snap.flowLph.v >= 100.0f)
+              ? 0u
+              : kHistDec[HIST_FLOW]);
+
+  // WHAT WOULD ACTUALLY MOVE A PIXEL. Only two things can: the driver tapping
+  // a different cell, or the head bucket changing -- either rolling over to a
+  // new one, or widening its own min/max. Every other column in the window is
+  // closed and can never change again, so redrawing all 45 at 10 Hz would
+  // invalidate a 179 x 104 strip of the screen ten times a second to repaint
+  // 44 rectangles identically. That is the setFlow() discipline; the cost of
+  // getting it wrong here is a page that renders like a full-screen frame
+  // forever.
+  const uint8_t p = s_histShown;
+  const uint8_t head = s_snap.hist.head;
+  const uint32_t headMs = s_snap.hist.headMs;
+  float lo = 0.0f;
+  float hi = 0.0f;
+  const bool has = historyRange(s_snap.hist, p, 0u, lo, hi);
+
+  const bool full = (p != s_histDrawnParam) || (head != s_histDrawnHead) ||
+                    (headMs != s_histDrawnHeadMs);
+  if (!full && has == s_histDrawnHas && lo == s_histDrawnLo &&
+      hi == s_histDrawnHi) {
+    return;
+  }
+  if (full) {
+    for (uint8_t col = 0u; col < (uint8_t)HIST_BUCKETS; ++col) {
+      histBarPlace(col, p, static_cast<uint8_t>(HIST_BUCKETS - 1u - col));
+    }
+  } else {
+    // Only the newest, which is the only one that can have moved.
+    histBarPlace(static_cast<uint8_t>(HIST_BUCKETS - 1u), p, 0u);
+  }
+  s_histDrawnParam = p;
+  s_histDrawnHead = head;
+  s_histDrawnHeadMs = headMs;
+  s_histDrawnHas = has;
+  s_histDrawnLo = lo;
+  s_histDrawnHi = hi;
+}
+
 static void refresh(uint32_t now) {
   // ONE read of the vehicle, at the top, into private memory.
   //
@@ -4224,6 +4669,7 @@ static void refresh(uint32_t now) {
   refreshFaultsPage();
   refreshFaultDlg();
   refreshAccel();
+  refreshHistory();
   refreshSettings(now);
   refreshConfirm();
 
@@ -4632,6 +5078,15 @@ static void buildRoot(void) {
   s_compDrawn = -1.0f;
   s_compBlank = false;
   s_dialDrawn = -1.0f;
+  // The HISTORY chart is the fourth of these and the most expensive to get
+  // wrong: the bars are rebuilt HIDDEN, so a stale cache agreeing that the
+  // window is already drawn leaves the chart blank until the head bucket
+  // happens to roll -- up to twenty seconds of an empty page after every
+  // palette swap and every flip.
+  s_histDrawnParam = 0xFFu;
+  s_histDrawnHead = 0xFFu;
+  s_histDrawnHeadMs = 0u;
+  s_histDrawnHas = false;
 
   s_root = mkScreen();
 
@@ -4686,6 +5141,7 @@ static void buildRoot(void) {
     buildTyresLs(s_page[UI_TYRES]);
     buildHealthLs(s_page[UI_HEALTH]);
     buildAccelLs(s_page[UI_ACCEL]);
+    buildHistoryLs(s_page[UI_HISTORY]);
     buildSettingsLs(s_page[UI_SETTINGS]);
   } else {
     buildTrip(s_page[UI_TRIP]);
@@ -4694,6 +5150,7 @@ static void buildRoot(void) {
     buildTyres(s_page[UI_TYRES]);
     buildHealth(s_page[UI_HEALTH]);
     buildAccel(s_page[UI_ACCEL]);
+    buildHistory(s_page[UI_HISTORY]);
     buildSettings(s_page[UI_SETTINGS]);
   }
 

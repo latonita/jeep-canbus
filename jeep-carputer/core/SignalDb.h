@@ -1,7 +1,7 @@
 #pragma once
 // Static description of the modules and signals we read.
 //
-// Generated once from the decrypted vendor database in D:\Repos\car\extracted
+// Generated once from the decrypted vendor database (extracted CSVs)
 // and committed as source (tools/gen_signals.py). Deliberately NOT a build-time
 // dependency: this project does not require that data to be present, and the
 // generated tables are reviewable in a diff.

@@ -149,7 +149,7 @@ void tripUpdate(TripSet& s, const BroadcastState& bc, uint32_t nowMs) {
         if (a > 1.0f) {
           a = 1.0f;
         }
-        s.flowLph += ((float)bc.flowRaw / 160.0f - s.flowLph) * a;
+        s.flowLph += ((float)bc.flowRaw / TRIP_FLOW_Q_PER_LPH - s.flowLph) * a;
         s.flowLphMs = bc.flowMs;
       }
     }

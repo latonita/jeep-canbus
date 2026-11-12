@@ -2,8 +2,7 @@
 // GENERATED FIXTURE -- do not hand-edit.
 //
 // Every (raw two-byte DTC, SAE string) pair from the extracted decode tables of
-// AppcarDiagFCA for this vehicle: D:\Repos\car\extracted\dtc_codes.csv,
-// all 1152 rows, both columns present in the source (raw_code_hex_2byte and
+// AppcarDiagFCA for this vehicle (dtc_codes.csv), all 1152 rows, both columns present in the source (raw_code_hex_2byte and
 // sae_code). Copied in full so this project needs nothing outside its own tree.
 //
 // Used by test/test_kwp to check kwpDtcToSae() against every known pair rather

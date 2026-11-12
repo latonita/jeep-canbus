@@ -76,7 +76,7 @@ enum TripId : uint8_t {
 //
 // So on the ADAPTER's clock the honest threshold is about 300 ms -- thirty per
 // cent of headroom over the worst interval the bus actually produced -- and
-// every one of 2000, 1000, 500 and 300 integrates the identical 1.1055 L.
+// every one of 2000, 1000, 500 and 300 integrates the identical 1.3819 L.
 // Tightening to 150 ms would start discarding real fuel (0.18 %).
 //
 // WHAT KEEPS IT AT 2000 IS THE FALLBACK PATHS, not the bus. This threshold is a
@@ -194,12 +194,22 @@ float tripFlowLph(const TripSet& s, uint32_t nowMs);
 // always zero:
 //
 //   Q = (b0 << 8) | b1          unsigned, big-endian
-//   L/h = Q / 160.0
+//   L/h = Q / TRIP_FLOW_Q_PER_LPH         (128)
 //
 // So litres is just the time integral of that rate, and nothing else is needed:
 //
-//   litres = SUM( Q x dt_ms ) / (160 x 3600 x 1000)
+//   litres = SUM( Q x dt_ms ) / (128 x 3600 x 1000)
 //          = SUM( Q x dt_ms ) / TRIP_FUEL_DIVISOR
+//
+// 128 IS CONFIRMED, 2026-11-04, against the ECU's own fuel rate: PCM `212B`
+// Fuel Consumption gives Q/(L/h) = 127-128.5 from idle (Q ~129 = 1.0 L/h) to
+// 30 L/h, r = 0.999, and injection volume x rpm gives 127-128.7 in every rpm
+// band. The earlier provisional 160 under-read every litre by 20 %. See
+// JEEP-WH-CRD-CAN-ID-byte-map.md, *Derived values*.
+//
+// fuelAccum stores RAW count-milliseconds, never litres, so totals persisted
+// under the old divisor are rescaled correctly by this change -- nothing in NVS
+// needs migrating.
 //
 // AN EARLIER VERSION OF THIS FILE WAS WRONG. It read 0x1A7 as injection
 // quantity per stroke -- a vendor-database cross-reference for a PCM PID, not
@@ -208,7 +218,8 @@ float tripFlowLph(const TripSet& s, uint32_t nowMs);
 // right. Both are gone. Multiplying an already-rate signal by rpm implies a
 // peak near 390 L/h, which is the tell. A signal that needs a 3x fudge to agree
 // with the dashboard was being modelled wrongly, not measured wrongly.
-#define TRIP_FUEL_DIVISOR 5.76e8
+#define TRIP_FLOW_Q_PER_LPH 128.0f
+#define TRIP_FUEL_DIVISOR ((double)TRIP_FLOW_Q_PER_LPH * 3600.0 * 1000.0)  // 4.608e8
 
 // Q == 0xFFFF is the module saying it has no value. It is NOT 409 L/h, and it
 // is not zero either -- the interval it spans must be dropped rather than
@@ -227,15 +238,16 @@ float tripFlowLph(const TripSet& s, uint32_t nowMs);
 // display smoothing ONLY; the integral above is fed raw samples.
 #define TRIP_FLOW_TAU_MS 3000u
 
-// Still worth confirming against a pump. Q/160 is a documented scaling, not one
-// derived here, but nothing in this firmware has been checked against fuel
+// Still worth confirming against a pump. Q/128 is confirmed against the ECU's
+// own fuel-rate PID, but nothing in this firmware has been checked against fuel
 // actually paid for. A fill-to-fill over a few hundred km would settle it.
 //
 // IT IS NO LONGER UNCHECKED AGAINST A DRIVE, THOUGH, and the result is
 // plausible enough to be worth recording: replaying a 1449.6 s capture
 // (14478 0x1A7 frames, timed by the gateway's own clock) through this arithmetic
-// gives 1.1055 L over a 10.600 km odometer delta -- 10.43 L/100 km, for a
-// 3.0 CRD doing 26 km/h average up and down a steep hill. Peak flow 13.1 L/h,
+// gives 1.3819 L over a 10.600 km odometer delta -- 13.04 L/100 km, for a
+// 3.0 CRD doing 26 km/h average up and down a steep hill (1.1055 L / 10.43
+// under the old /160, rescaled x1.25). Peak flow 16.4 L/h,
 // 1.2 % of samples at exactly zero (overrun cut-off on the descent). A wrong
 // model would not land there by accident.
 //
@@ -248,4 +260,4 @@ float tripFlowLph(const TripSet& s, uint32_t nowMs);
 // The distance term dominates by a factor of thirty. So no refinement of the
 // time integral -- not the timestamps, not the rectangle rule -- can improve
 // the L/100 km figure on a short trip: only a longer trip can, and on a tankful
-// the odometer term falls away and Q/160 itself becomes the thing to check.
+// the odometer term falls away and Q/128 itself becomes the thing to check.

@@ -1,8 +1,7 @@
 #pragma once
 // GENERATED FIXTURE -- do not hand-edit.
 //
-// The real all-module DTC scan of this vehicle, from
-// D:\Repos\car\extracted\live_dtc_scan.csv: 16 fault records over 10 modules
+// The real all-module DTC scan of this vehicle (live_dtc_scan.csv): 16 fault records over 10 modules
 // (the three modules that reported zero faults carry no record rows and are not
 // listed here). Copied in full so this project needs nothing outside its tree.
 //

@@ -24,7 +24,7 @@ static void running(BroadcastState& bc, uint32_t t, uint16_t rpm, uint16_t flow)
 // Build a Trip with a known distance and a known litres burnt, via the same
 // odometer + flow-integration path every other trip test here uses -- not by
 // poking the struct directly. Flow is stepped in TRIP_MAX_GAP_MS (2000 ms)
-// chunks at a fixed Q=1600 (10.0 L/h) so every interval integrates in full;
+// chunks at a fixed Q=1280 (10.0 L/h) so every interval integrates in full;
 // callers pick a litres figure that divides evenly by one step's own litres.
 static Trip buildTripKmLitres(float km, float litres) {
   TripSet s;
@@ -37,7 +37,7 @@ static Trip buildTripKmLitres(float km, float litres) {
   tripUpdate(s, bc, 1u);
 
   const uint32_t kStepMs = TRIP_MAX_GAP_MS;
-  const uint16_t kQ = 1600u;
+  const uint16_t kQ = 1280u;              // 10.0 L/h at Q/128
   const double perStepLitres =
       (double)kQ * (double)kStepMs / (double)TRIP_FUEL_DIVISOR;
   const uint32_t steps = (uint32_t)((double)litres / perStepLitres + 0.5);
@@ -123,9 +123,9 @@ TEST_MAIN_BEGIN()
     CHECK_NEAR(litres[0], litres[1], litres[0] * 0.02f);
 
     // And the magnitude is the rate times the time, with no free parameters:
-    //   Q/160 L/h = 3.125 L/h, for 60 s = 0.0521 L
-    //   == Q x ms / 5.76e8 = 500 x 60000 / 5.76e8
-    CHECK_NEAR(litres[0], 0.05208f, 0.0015f);
+    //   Q/128 L/h = 3.906 L/h, for 60 s = 0.0651 L
+    //   == Q x ms / 4.608e8 = 500 x 60000 / 4.608e8
+    CHECK_NEAR(litres[0], 0.06510f, 0.0019f);
   }
 
   // -------------------------------------------------------------------------
@@ -209,9 +209,9 @@ TEST_MAIN_BEGIN()
     broadcastClear(bc);
     CHECK(tripFlowLph(s, 0u) < 0.0f);          // nothing heard yet
 
-    // Q = 1600 is 10.0 L/h. Well past the time constant it should be there.
+    // Q = 1280 is 10.0 L/h. Well past the time constant it should be there.
     for (uint32_t t = 100u; t <= 20000u; t += 100u) {
-      running(bc, t, 2000u, 1600u);
+      running(bc, t, 2000u, 1280u);
       tripUpdate(s, bc, t);
     }
     CHECK_NEAR(tripFlowLph(s, 20000u), 10.0f, 0.1f);

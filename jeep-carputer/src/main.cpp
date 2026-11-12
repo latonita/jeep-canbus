@@ -617,9 +617,16 @@ static bool gLinkUp = false;
 // So the crossing is now explicit, in one direction, through one structure,
 // under a spinlock. A spinlock rather than a mutex because both sides are
 // short and neither may sleep here: the writer is a task that must get back to
-// the UART, and the reader is the LVGL task at the top of a frame. ~650 bytes
-// is a couple of microseconds, which is far less than either side would lose
+// the UART, and the reader is the LVGL task at the top of a frame. ~1250 bytes
+// is a few microseconds, which is far less than either side would lose
 // blocking.
+//
+// It was ~650 until the HISTORY page put its fifteen-minute ring on the
+// snapshot -- 728 bytes of it, measured with `nm -S` as 0x4e8 = 1256 per copy.
+// That was a deliberate trade: the alternative was a second publication
+// boundary with its own lock for the chart, and five live pointers is exactly
+// what this structure exists to have replaced. If a THIRD large consumer ever
+// wants on, re-measure before assuming the lock is still cheap.
 //
 // gSnapLock protects gSnapLive and nothing else. Do NOT reach for it to guard
 // gBcast or gFaults themselves -- those keep their single-writer discipline,

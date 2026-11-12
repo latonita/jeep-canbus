@@ -49,7 +49,7 @@
 // 0x01B, and a second transmitter would collide with it. It is gated behind
 // bench mode for exactly that reason.
 //
-// Wire format observed in jeep-can-b-logs (playback-long-wo-radio.log): DLC 8,
+// Wire format (CAN-ID map, 0x01B): DLC 8,
 // byte 0 = frame index, bytes 1..7 = seven ASCII VIN characters. Three frames
 // (index 00/01/02) carry the 17-char VIN; the tail of the last is zero-padded.
 // The car spaces the frames evenly ~100 ms apart -- full VIN every ~300 ms

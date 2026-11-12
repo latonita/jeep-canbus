@@ -3,8 +3,7 @@
 //
 // Real ISO-TP frame sequences lifted off the wire during a live diagnostic
 // session on this vehicle (2005 Jeep WK, 3.0 CRD) with AppcarDiagFCA 1.7.1.5
-// driving an OBDLink EX:
-//   D:\Repos\car\capture\logs\capture-20260910-120048.jsonl
+// driving an OBDLink EX.
 // The app ran with ATCAF0/ATH0, so the raw ISO-TP PCI byte is visible on the
 // wire and every response line is a full 8-byte CAN frame. Frame bytes below
 // are verbatim; `pdu` is the reassembly truncated to the PCI-declared length.

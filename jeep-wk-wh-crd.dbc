@@ -1,0 +1,756 @@
+VERSION "jeep-wk-wh-crd 2026-11-12"
+
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	BA_DEF_DEF_
+	VAL_TABLE_
+	SIG_GROUP_
+
+BS_:
+
+BU_: CCN WCM PCM RAR AMP CANBOX VES
+
+
+BO_ 0 Ignition: 6 Vector__XXX
+ SG_ IgnitionState : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 2 EngineSpeed_VehSpeed: 8 Vector__XXX
+ SG_ EngineRPM : 7|16@0+ (1,0) [0|65535] "rpm" Vector__XXX
+ SG_ VehicleSpeed : 23|16@0+ (0.0078125,0) [0|511.992188] "km/h" Vector__XXX
+ SG_ WheelDistLeft : 39|16@0+ (1,0) [0|65535] "counts" Vector__XXX
+ SG_ WheelDistRight : 55|16@0+ (1,0) [0|65535] "counts" Vector__XXX
+
+BO_ 3 ClusterTelltales_Gear: 7 Vector__XXX
+ SG_ Lamp_ABS : 0|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Lamp_ESP : 1|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Lamp_ESP_Off : 2|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Lamp_ESP_Flash : 3|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Lamp_ParkBrake : 4|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Lamp_ChargeFail : 7|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Lamp_MIL : 8|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Lamp_MIL_Blink : 9|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Lamp_OilPressure : 10|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Lamp_WaitToStart : 11|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Lamp_WaterInFuel : 12|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ AC_CompressorOn : 13|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Cruise_Engaged : 14|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Cruise_On : 15|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ GearSelector : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ BrakeSwitch : 24|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ PRNDL_Display : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ FourWD_Low : 50|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ TransferCaseShifting : 51|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 6 Lights_RAP_CCNSettings: 7 CCN
+ SG_ TurnLeft : 0|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ TurnRight : 1|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ ParkingLamps : 3|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ LowBeam : 4|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ HighBeam : 5|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ FrontFog : 6|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ RearFog : 7|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ RAP_Active : 9|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ PowerMode_Bit5 : 13|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ CCN_SettingsFlags : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ ApproachLightTime : 31|8@0+ (1,0) [0|255] "s" Vector__XXX
+ SG_ HeadlampOffDelay : 39|8@0+ (1,0) [0|255] "s" Vector__XXX
+ SG_ RAP_Delay : 47|16@0+ (1,0) [0|65535] "s" Vector__XXX
+
+BO_ 8 Static_008: 6 Vector__XXX
+
+BO_ 16 Static_010: 8 Vector__XXX
+ SG_ AliveToggle_010 : 1|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 17 Static_011: 8 Vector__XXX
+ SG_ AliveToggle_011 : 1|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 18 WCM_BussedOutput1: 6 WCM
+ SG_ RKE_BasicRequest : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ RKE_ComplexRequest : 8|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SKIM_KeyNumber : 12|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ SKIM_ValidKey : 17|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ SKREEM_ChimeRequest : 18|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ SKREEM_SeedRequest : 19|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ TPM_HornRequest : 20|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ TPM_ChimeRequest : 21|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ KeyAuthData : 39|16@0+ (1,0) [0|65535] "" Vector__XXX
+
+BO_ 19 Doors_Seatbelt: 5 Vector__XXX
+ SG_ DriverBeltUnbuckled : 3|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ DoorsValid : 7|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Door_FL_Ajar : 16|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Door_FR_Ajar : 17|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Door_RR_Ajar : 18|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Door_RL_Ajar : 19|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Hatch_Ajar : 20|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 20 Odometer_AmbTemp_FuelSender: 7 Vector__XXX
+ SG_ Odometer : 7|24@0+ (0.1,0) [0|1677721.5] "km" Vector__XXX
+ SG_ AmbientTempFiltered : 39|16@0+ (0.01,-40) [0|615.35] "degC" Vector__XXX
+ SG_ FuelSenderVoltage : 55|8@0+ (0.01960784314,0) [0|5] "V" Vector__XXX
+
+BO_ 21 AmbTempRaw_Battery: 6 Vector__XXX
+ SG_ AmbientTempRaw : 7|8@0+ (0.5,-40) [0|87.5] "degC" Vector__XXX
+ SG_ BatteryVoltage : 15|8@0+ (0.1,0) [0|25.5] "V" Vector__XXX
+ SG_ Unknown_TempLike : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 27 VIN: 8 Vector__XXX
+ SG_ VIN_Index M : 7|8@0+ (1,0) [0|3] "" Vector__XXX
+ SG_ VIN_Char01 m0 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char02 m0 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char03 m0 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char04 m0 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char05 m0 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char06 m0 : 55|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char07 m0 : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char08 m1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char09 m1 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char10 m1 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char11 m1 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char12 m1 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char13 m1 : 55|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char14 m1 : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char15 m2 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char16 m2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_Char17 m2 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ VIN_BootPad m3 : 15|56@0+ (1,0) [0|72057594037927935] "" Vector__XXX
+
+BO_ 44 Engine_Oil_Coolant_Pedal: 6 PCM
+ SG_ OilPressure : 7|8@0+ (4,0) [0|1020] "kPa" Vector__XXX
+ SG_ CoolantTemp : 15|8@0+ (1,-40) [0|215] "degC" Vector__XXX
+ SG_ AcceleratorPedal : 23|8@0+ (0.4,0) [0|102] "%" Vector__XXX
+ SG_ Unknown_b3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Unknown_b4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 46 Static_02E: 2 Vector__XXX
+
+BO_ 159 Radio_Mode: 8 RAR
+ SG_ RadioMode : 7|24@0+ (1,0) [0|16777215] "" Vector__XXX
+
+BO_ 208 ParkingBrake: 2 Vector__XXX
+ SG_ IgnitionRun : 2|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ ParkingBrake : 7|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 236 AC_Compressor: 1 PCM
+ SG_ AC_ClutchEngaged : 0|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 240 CanBox_0F0: 4 CANBOX
+
+BO_ 272 Static_110: 8 Vector__XXX
+ SG_ AliveToggle_110 : 1|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 285 ColumnStalks: 3 Vector__XXX
+ SG_ Stalk_TurnLeft : 3|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Stalk_TurnRight : 4|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Stalk_HighBeamLatched : 5|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Stalk_HighBeamPush : 6|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Stalk_Unknown_b0b7 : 7|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Stalk_Unknown_b1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 345 FuelLevel_MinutesSinceRun: 6 Vector__XXX
+ SG_ MinutesSinceRun : 7|8@0+ (1,0) [0|255] "min" Vector__XXX
+ SG_ FuelLevelInvalid : 32|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ FuelLevel : 47|8@0+ (0.5,0) [0|127.5] "L" Vector__XXX
+
+BO_ 396 CanBox_Status: 8 CANBOX
+ SG_ CanBox_IgnitionOff : 4|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 400 CanBox_190: 7 CANBOX
+
+BO_ 423 FuelFlow: 6 PCM
+ SG_ FuelFlow : 7|16@0+ (0.0078125,0) [0|511.992188] "L/h" Vector__XXX
+
+BO_ 427 Radio_Heartbeat1: 6 RAR
+ SG_ Radio_HB1_b0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 428 DimmerWheel: 1 Vector__XXX
+ SG_ DimmerWheelPos : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 429 Static_1AD: 6 Vector__XXX
+ SG_ AliveToggle_1AD : 1|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 430 Static_1AE: 6 Vector__XXX
+
+BO_ 431 Static_1AF: 8 Vector__XXX
+ SG_ AliveToggle_1AF : 1|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 432 Static_1B0: 8 Vector__XXX
+
+BO_ 434 TransferCase: 6 Vector__XXX
+ SG_ FourWD_LeverPulled : 7|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ TransferCaseRange : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 435 Static_1B3: 6 Vector__XXX
+
+BO_ 436 Compass: 6 CCN
+ SG_ CompassDirection8 : 7|8@0+ (1,0) [0|7] "" Vector__XXX
+ SG_ CompassHeading : 15|8@0+ (2,0) [0|358] "deg" Vector__XXX
+ SG_ CompassZone : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 437 Static_1B5: 6 Vector__XXX
+
+BO_ 438 Static_1B6: 7 Vector__XXX
+
+BO_ 443 Radio_Heartbeat2: 6 RAR
+
+BO_ 456 ExteriorLights: 1 Vector__XXX
+ SG_ HeadlampMode : 0|2@1+ (1,0) [0|3] "" Vector__XXX
+ SG_ FrontFogLamps : 4|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ RearFogLamp : 5|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 480 Event_1E0: 6 Vector__XXX
+
+BO_ 482 Event_1E2: 6 Vector__XXX
+
+BO_ 504 Static_1F8: 1 Vector__XXX
+
+BO_ 528 LightSwitch_PanelDimmer: 2 Vector__XXX
+ SG_ LightSwitch : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ PanelIllumination : 15|8@0+ (0.5,0) [0|127.5] "%" Vector__XXX
+
+BO_ 704 Pedals_Boost_Brake: 8 PCM
+ SG_ APP1_Voltage : 23|8@0+ (0.01953125,0) [0|4.980469] "V" Vector__XXX
+ SG_ APP2_Voltage : 31|8@0+ (0.01953125,0) [0|4.980469] "V" Vector__XXX
+ SG_ BoostPressureAbs : 39|8@0+ (8,0) [0|2040] "hPa" Vector__XXX
+ SG_ APP1_Voltage_Copy : 55|8@0+ (0.01953125,0) [0|4.980469] "V" Vector__XXX
+ SG_ Unknown_b7b1 : 57|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ BrakeSwitch1 : 58|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ BrakeSwitch2 : 59|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ NotInPark : 63|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 806 CanBox_326: 8 CANBOX
+
+BO_ 880 Wiper: 6 Vector__XXX
+ SG_ WiperSweep : 7|8@0+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 916 Radio_Buttons: 6 RAR
+ SG_ RadioModeMirror : 7|24@0+ (1,0) [0|16777215] "" Vector__XXX
+ SG_ Btn_SeekRight : 24|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Btn_SeekLeft : 25|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Btn_FastForward : 26|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Btn_Rewind : 27|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Btn_RandomPTY : 29|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ Radio_Unknown_b4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 928 Static_3A0: 2 Vector__XXX
+
+BO_ 976 Amp_VolumeEQ: 7 RAR
+ SG_ Volume : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Bass : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Mid : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Treble : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Balance : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Fade : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 989 VES_Present: 8 VES
+ SG_ VES_Present : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+
+BO_ 1012 Event_3F4: 6 Vector__XXX
+
+BO_ 1016 Static_3F8: 6 Vector__XXX
+
+BO_ 1024 NM_Node00: 8 Vector__XXX
+ SG_ NM00_Opcode : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM00_Address : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM00_SleepInd : 23|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1026 NM_Node02: 8 Vector__XXX
+ SG_ NM02_Opcode : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM02_Address : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM02_SleepInd : 23|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1044 NM_Node14: 8 Vector__XXX
+ SG_ NM14_Opcode : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM14_Address : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM14_SleepInd : 23|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1045 NM_Node15: 8 Vector__XXX
+ SG_ NM15_Opcode : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM15_Address : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM15_SleepInd : 23|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1046 NM_Node16: 8 RAR
+ SG_ NM16_Opcode : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM16_Address : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM16_SleepInd : 23|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1052 NM_Node1C: 8 Vector__XXX
+ SG_ NM1C_Opcode : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM1C_Address : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM1C_SleepInd : 23|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1054 NM_Node1E: 8 Vector__XXX
+ SG_ NM1E_Opcode : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM1E_Address : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ NM1E_SleepInd : 23|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 1280 WCM_DiagResponse: 8 WCM
+ SG_ Rsp_Length : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Rsp_Service : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Rsp_LocalId M : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ TPMS0_Pressure m32 : 31|8@0+ (1,0) [0|255] "psi" Vector__XXX
+ SG_ TPMS0_Temp m32 : 39|8@0+ (1,-50) [0|205] "degC" Vector__XXX
+ SG_ TPMS0_Status m32 : 47|24@0+ (1,0) [0|16777215] "" Vector__XXX
+ SG_ TPMS1_Pressure m33 : 31|8@0+ (1,0) [0|255] "psi" Vector__XXX
+ SG_ TPMS1_Temp m33 : 39|8@0+ (1,-50) [0|205] "degC" Vector__XXX
+ SG_ TPMS1_Status m33 : 47|24@0+ (1,0) [0|16777215] "" Vector__XXX
+ SG_ TPMS2_Pressure m34 : 31|8@0+ (1,0) [0|255] "psi" Vector__XXX
+ SG_ TPMS2_Temp m34 : 39|8@0+ (1,-50) [0|205] "degC" Vector__XXX
+ SG_ TPMS2_Status m34 : 47|24@0+ (1,0) [0|16777215] "" Vector__XXX
+ SG_ TPMS3_Pressure m35 : 31|8@0+ (1,0) [0|255] "psi" Vector__XXX
+ SG_ TPMS3_Temp m35 : 39|8@0+ (1,-50) [0|205] "degC" Vector__XXX
+ SG_ TPMS3_Status m35 : 47|24@0+ (1,0) [0|16777215] "" Vector__XXX
+ SG_ TPMS4_Pressure m36 : 31|8@0+ (1,0) [0|255] "psi" Vector__XXX
+ SG_ TPMS4_Temp m36 : 39|8@0+ (1,-50) [0|205] "degC" Vector__XXX
+ SG_ TPMS4_Status m36 : 47|24@0+ (1,0) [0|16777215] "" Vector__XXX
+
+BO_ 1536 WCM_DiagRequest: 8 Vector__XXX
+ SG_ Req_Length : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Req_Service : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+ SG_ Req_LocalId : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+
+
+CM_ "Jeep Grand Cherokee WK/WH 3.0 CRD, CAN-B interior bus 83.333 kbit/s, 11-bit IDs. Confidence attribute per signal.";
+CM_ BU_ CCN "Cluster / cab compartment node";
+CM_ BU_ WCM "Wireless control module (SKREEM/RKE/TPMS)";
+CM_ BU_ RAR "Factory RAR radio (replaced 2026-11-04 by Android unit + CAN box)";
+CM_ BU_ CANBOX "Aftermarket CAN box for the Android head unit";
+CM_ BU_ VES "Video entertainment system (injected command only)";
+CM_ SG_ 0 IgnitionState "Key/ignition state (bit0 = key present, probable)";
+CM_ BO_ 0 "Ignition / key state";
+CM_ SG_ 2 EngineRPM "Engine speed, 1 rpm/count; FFFF = n/a";
+CM_ SG_ 2 VehicleSpeed "Vehicle speed raw/128 km/h; FFFF = n/a";
+CM_ SG_ 2 WheelDistLeft "Left-wheel distance counter, rolling u16, ~24.9 counts/m (= ABS 2151 / CCN 213E left)";
+CM_ SG_ 2 WheelDistRight "Right-wheel distance counter, rolling u16, ~24.9 counts/m (= ABS 2151 / CCN 213E right)";
+CM_ BO_ 2 "RPM, speed, wheel distance pulses; all FF = unavailable";
+CM_ SG_ 3 Lamp_ESP_Off "ESP lamp steady = ESP disabled (button or 4WD Low)";
+CM_ SG_ 3 Lamp_WaitToStart "Glow-plug lamp";
+CM_ SG_ 3 AC_CompressorOn "Same as 0EC b0";
+CM_ SG_ 3 Cruise_Engaged "Cruise speed set";
+CM_ SG_ 3 Cruise_On "Cruise armed";
+CM_ SG_ 3 GearSelector "Selector lever (fixed 0x80 + range); all AutoStick ranges = 84";
+CM_ SG_ 3 PRNDL_Display "PRNDL ASCII shown on cluster";
+CM_ SG_ 3 FourWD_Low "4WD Low engaged (4LO telltale)";
+CM_ SG_ 3 TransferCaseShifting "Transfer-case shift in progress / 4WD lever pulled";
+CM_ BO_ 3 "Cluster telltales + gear selector; b0/b1/b4 = CCN KWP 213F bytes 2/3/7";
+CM_ SG_ 6 TurnRight "Both turn bits = hazard";
+CM_ SG_ 6 RAP_Active "Retained accessory power; held after OFF, cleared by door open (key out) or RAP timeout";
+CM_ SG_ 6 PowerMode_Bit5 "Set at ACC before RAP bit, survives crank, clears first at timeout";
+CM_ SG_ 6 CCN_SettingsFlags "Usually 04; CCN settings flag byte, mapping unknown";
+CM_ SG_ 6 ApproachLightTime "Illuminated-approach time";
+CM_ SG_ 6 HeadlampOffDelay "Headlamp off-delay time";
+CM_ SG_ 6 RAP_Delay "Power-accessory (RAP) delay, 0x258 = 600 s";
+CM_ BO_ 6 "Lights, indicators, RAP, CCN settings; b2..b6 = CCN KWP 2133 bytes 3..7";
+CM_ BO_ 8 "Static/unknown: 00 00 80 80 00 00";
+CM_ SG_ 16 AliveToggle_010 "Toggles together in 010/011/110/1AD/1AF shared burst";
+CM_ BO_ 16 "Static/unknown: 41 01 15 71 63 80 2A 03";
+CM_ SG_ 17 AliveToggle_011 "Toggles together in 010/011/110/1AD/1AF shared burst";
+CM_ BO_ 17 "Static/unknown: 3D 13 00 03 8B 40 00 00";
+CM_ SG_ 18 RKE_BasicRequest "01 around a fob unlock";
+CM_ SG_ 18 RKE_ComplexRequest "Probably RKE complex request / fob number";
+CM_ SG_ 18 SKIM_KeyNumber "SKIM key number in ignition, 0 = key out";
+CM_ SG_ 18 TPM_ChimeRequest "Injecting it did not chime";
+CM_ SG_ 18 KeyAuthData "49 99 only during key-authorisation burst";
+CM_ BO_ 18 "WCM key / RKE / chime status (= WCM KWP 2118 bytes 2..6)";
+CM_ SG_ 19 DoorsValid "Data valid / module awake";
+CM_ BO_ 19 "Doors ajar, driver seatbelt";
+CM_ SG_ 20 Odometer "Odometer 0.1 km/count; FFFFFF = n/a";
+CM_ SG_ 20 AmbientTempFiltered "Filtered outside temperature (dash value); FFFF = n/a";
+CM_ SG_ 20 FuelSenderVoltage "Raw fuel-sender voltage (= CCN 2103); FF unless RUN";
+CM_ BO_ 20 "Odometer, filtered outside temperature, fuel sender";
+CM_ SG_ 21 AmbientTempRaw "Raw outside-temperature sensor (CCN 2134); heat-soaks when stopped";
+CM_ SG_ 21 BatteryVoltage "Battery/charging voltage (CCN 2134)";
+CM_ SG_ 21 Unknown_TempLike "Temperature-like value, not intake/charge air";
+CM_ BO_ 21 "Raw outside temperature, battery voltage";
+CM_ SG_ 27 VIN_Char01 "ASCII";
+CM_ SG_ 27 VIN_Char02 "ASCII";
+CM_ SG_ 27 VIN_Char03 "ASCII";
+CM_ SG_ 27 VIN_Char04 "ASCII";
+CM_ SG_ 27 VIN_Char05 "ASCII";
+CM_ SG_ 27 VIN_Char06 "ASCII";
+CM_ SG_ 27 VIN_Char07 "ASCII";
+CM_ SG_ 27 VIN_Char08 "ASCII";
+CM_ SG_ 27 VIN_Char09 "ASCII";
+CM_ SG_ 27 VIN_Char10 "ASCII";
+CM_ SG_ 27 VIN_Char11 "ASCII";
+CM_ SG_ 27 VIN_Char12 "ASCII";
+CM_ SG_ 27 VIN_Char13 "ASCII";
+CM_ SG_ 27 VIN_Char14 "ASCII";
+CM_ SG_ 27 VIN_Char15 "ASCII";
+CM_ SG_ 27 VIN_Char16 "ASCII";
+CM_ SG_ 27 VIN_Char17 "ASCII";
+CM_ SG_ 27 VIN_BootPad "Index 03 with zeros during boot";
+CM_ BO_ 27 "VIN, 3-frame multiplex, 7 ASCII chars each";
+CM_ SG_ 44 OilPressure "Gauge oil pressure ~4 kPa/count (PCM 21AA hPa abs = 39.9*raw+1031); 0 = engine off";
+CM_ SG_ 44 CoolantTemp "Coolant temperature (exact vs CCN 2140)";
+CM_ SG_ 44 AcceleratorPedal "Accelerator pedal, 250 = 100 %";
+CM_ SG_ 44 Unknown_b3 "64 / 65";
+CM_ SG_ 44 Unknown_b4 "00 (03 when unavailable)";
+CM_ BO_ 44 "Engine oil pressure, coolant, pedal; all FF = unavailable";
+CM_ BO_ 46 "Static/unknown: 1F 00";
+CM_ SG_ 159 RadioMode "Radio source / current mode (value map incomplete)";
+CM_ BO_ 159 "Radio source/mode (RAR; now emulated by CAN box)";
+CM_ SG_ 208 IgnitionRun "Set key-on to RUN, cleared at 85->63";
+CM_ BO_ 208 "Parking brake";
+CM_ SG_ 236 AC_ClutchEngaged "Matches PCM 210D compressor output";
+CM_ BO_ 236 "A/C compressor (~1.5 s and on change)";
+CM_ BO_ 240 "Aftermarket CAN box periodic frame, semantics unknown";
+CM_ SG_ 272 AliveToggle_110 "Toggles together in 010/011/110/1AD/1AF shared burst";
+CM_ BO_ 272 "Static/unknown: 95 7E 04 83 83 00 55 00";
+CM_ SG_ 285 Stalk_HighBeamPush "Momentary";
+CM_ SG_ 285 Stalk_Unknown_b0b7 "80 once for 0.2 s at idle";
+CM_ SG_ 285 Stalk_Unknown_b1 "Small state 0..3";
+CM_ BO_ 285 "Column stalk switches";
+CM_ SG_ 345 MinutesSinceRun "Minutes since ignition left RUN; frozen while ON; FE = saturated; FF transient on re-init";
+CM_ SG_ 345 FuelLevelInvalid "1 = FuelLevel unavailable";
+CM_ SG_ 345 FuelLevel "Filtered fuel level ~0.5 L/count, uncalibrated (PCM 2111 reads ~4 L higher near 70 L)";
+CM_ BO_ 345 "Fuel level, minutes since ignition left RUN";
+CM_ SG_ 396 CanBox_IgnitionOff "Set when ACC/RAP ends";
+CM_ BO_ 396 "Aftermarket CAN box frame";
+CM_ BO_ 400 "Aftermarket CAN box periodic frame, semantics unknown";
+CM_ SG_ 423 FuelFlow "Q/128 L/h (vs PCM 212B); FFFF = n/a, 0 = overrun cut. Integrate over time";
+CM_ BO_ 423 "Instantaneous fuel flow (100 ms running, ~400 ms key-off)";
+CM_ BO_ 427 "Head-unit heartbeat (03 00..)";
+CM_ SG_ 428 DimmerWheelPos "01 top detent (dome on, max) .. 09 bottom detent (dome off, min)";
+CM_ BO_ 428 "Dash/dome dimmer wheel";
+CM_ SG_ 429 AliveToggle_1AD "Toggles together in 010/011/110/1AD/1AF shared burst";
+CM_ BO_ 429 "Static/unknown: 01 42 42 04 01 00";
+CM_ BO_ 430 "Static/unknown: zeros";
+CM_ SG_ 431 AliveToggle_1AF "Toggles together in 010/011/110/1AD/1AF shared burst";
+CM_ BO_ 431 "Static/unknown: 01 E7 00 40 01 A4 08 FF";
+CM_ BO_ 432 "Static/unknown: 0D DE 03 E8 0A A0 08 DE";
+CM_ BO_ 434 "4WD / transfer case";
+CM_ BO_ 435 "Static/unknown: zeros";
+CM_ SG_ 436 CompassHeading "Magnetic heading, 2 deg/count (= CCN 2152 raw / 2)";
+CM_ SG_ 436 CompassZone "07 constant; probably variance zone";
+CM_ BO_ 436 "Compass (no unavailable sentinel; gate on 000)";
+CM_ BO_ 437 "Static/unknown: FD 0D 17 D1 00 00";
+CM_ BO_ 438 "Static/unknown: 00 18 FF 18 FF 18 FF";
+CM_ BO_ 443 "Head-unit heartbeat (zeros)";
+CM_ BO_ 456 "Exterior lights (high beam is not here)";
+CM_ BO_ 480 "Unknown event: burst b0=01 ending b0=00";
+CM_ BO_ 482 "Unknown event: b0..b2 vary by session";
+CM_ BO_ 504 "Static/unknown: 00";
+CM_ SG_ 528 LightSwitch "00/01 wake/key-off transients";
+CM_ SG_ 528 PanelIllumination "IP illumination (CCN 2106); detents 22/44/66/A4/C8";
+CM_ BO_ 528 "Light switch, panel dimmer";
+CM_ SG_ 704 APP1_Voltage "Accelerator pedal sensor 1 (rest 0.45 V)";
+CM_ SG_ 704 APP2_Voltage "Pedal sensor 2 (half-voltage track)";
+CM_ SG_ 704 BoostPressureAbs "Boost/MAP absolute, saturates at FE (~2030 hPa)";
+CM_ SG_ 704 APP1_Voltage_Copy "Exact copy of b2";
+CM_ SG_ 704 Unknown_b7b1 "Always set";
+CM_ SG_ 704 BrakeSwitch2 "Second contact";
+CM_ BO_ 704 "Pedal sensors, boost, brake flags";
+CM_ BO_ 806 "Aftermarket CAN box periodic frame, semantics unknown";
+CM_ SG_ 880 WiperSweep "Pulses 01 then 00, one per sweep";
+CM_ BO_ 880 "Wiper (event-driven)";
+CM_ SG_ 916 RadioModeMirror "Mirror of 09F b0..b2";
+CM_ BO_ 916 "Radio buttons (plus on press/release)";
+CM_ BO_ 928 "Static/unknown: 00 00 heartbeat";
+CM_ SG_ 976 Bass "Centre ~0A";
+CM_ BO_ 976 "Amplifier volume/EQ (RAR; now sent by CAN box)";
+CM_ SG_ 989 VES_Present "03 = VES present -> RAR enables AUX";
+CM_ BO_ 989 "VES-present command (injected, not passively observed)";
+CM_ BO_ 1012 "Unknown event: b0..b3 vary by session";
+CM_ BO_ 1016 "Static/unknown: 04 00.. fast heartbeat";
+CM_ SG_ 1024 NM00_Address "FE: own address; FD: successor address";
+CM_ SG_ 1024 NM00_SleepInd "Sleep indication/request";
+CM_ BO_ 1024 "OSEK NM node 00";
+CM_ SG_ 1026 NM02_Address "FE: own address; FD: successor address";
+CM_ SG_ 1026 NM02_SleepInd "Sleep indication/request";
+CM_ BO_ 1026 "OSEK NM node 02";
+CM_ SG_ 1044 NM14_Address "FE: own address; FD: successor address";
+CM_ SG_ 1044 NM14_SleepInd "Sleep indication/request";
+CM_ BO_ 1044 "OSEK NM node 14";
+CM_ SG_ 1045 NM15_Address "FE: own address; FD: successor address";
+CM_ SG_ 1045 NM15_SleepInd "Sleep indication/request";
+CM_ BO_ 1045 "OSEK NM node 15";
+CM_ SG_ 1046 NM16_Address "FE: own address; FD: successor address";
+CM_ SG_ 1046 NM16_SleepInd "Sleep indication/request";
+CM_ BO_ 1046 "OSEK NM node 16 = RAR radio (now CAN box)";
+CM_ SG_ 1052 NM1C_Address "FE: own address; FD: successor address";
+CM_ SG_ 1052 NM1C_SleepInd "Sleep indication/request";
+CM_ BO_ 1052 "OSEK NM node 1C (joins only while ignition ON)";
+CM_ SG_ 1054 NM1E_Address "FE: own address; FD: successor address";
+CM_ SG_ 1054 NM1E_SleepInd "Sleep indication/request";
+CM_ BO_ 1054 "OSEK NM node 1E";
+CM_ SG_ 1280 TPMS0_Pressure "Gauge pressure; wheel position not mapped";
+CM_ SG_ 1280 TPMS0_Temp "Tyre temperature raw-50";
+CM_ SG_ 1280 TPMS0_Status "s0..s2; s0/s1 change on a fresh sensor telegram";
+CM_ SG_ 1280 TPMS1_Pressure "Gauge pressure; wheel position not mapped";
+CM_ SG_ 1280 TPMS1_Temp "Tyre temperature raw-50";
+CM_ SG_ 1280 TPMS1_Status "s0..s2; s0/s1 change on a fresh sensor telegram";
+CM_ SG_ 1280 TPMS2_Pressure "Gauge pressure; wheel position not mapped";
+CM_ SG_ 1280 TPMS2_Temp "Tyre temperature raw-50";
+CM_ SG_ 1280 TPMS2_Status "s0..s2; s0/s1 change on a fresh sensor telegram";
+CM_ SG_ 1280 TPMS3_Pressure "Gauge pressure; wheel position not mapped";
+CM_ SG_ 1280 TPMS3_Temp "Tyre temperature raw-50";
+CM_ SG_ 1280 TPMS3_Status "s0..s2; s0/s1 change on a fresh sensor telegram";
+CM_ SG_ 1280 TPMS4_Pressure "Gauge pressure; wheel position not mapped";
+CM_ SG_ 1280 TPMS4_Temp "Tyre temperature raw-50";
+CM_ SG_ 1280 TPMS4_Status "s0..s2; s0/s1 change on a fresh sensor telegram";
+CM_ BO_ 1280 "WCM KWP response 07 61 2x psi temp s0 s1 s2; mux on local id";
+CM_ BO_ 1536 "Tester -> WCM KWP request, e.g. 02 21 2x 00.. (TPMS slots 20..24)";
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ SG_ "Confidence" ENUM "Confirmed","Probable","Candidate","Unknown","OwnerStated";
+BA_DEF_  "BusType" STRING ;
+BA_DEF_  "Baudrate" INT 0 1000000;
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_DEF_DEF_ "Confidence" "Unknown";
+BA_DEF_DEF_ "BusType" "CAN";
+BA_DEF_DEF_ "Baudrate" 83333;
+BA_ "BusType" "CAN";
+BA_ "Baudrate" 83333;
+BA_ "Confidence" SG_ 0 IgnitionState 0;
+BA_ "GenMsgCycleTime" BO_ 0 100;
+BA_ "Confidence" SG_ 2 EngineRPM 0;
+BA_ "Confidence" SG_ 2 VehicleSpeed 0;
+BA_ "Confidence" SG_ 2 WheelDistLeft 0;
+BA_ "Confidence" SG_ 2 WheelDistRight 0;
+BA_ "GenMsgCycleTime" BO_ 2 50;
+BA_ "Confidence" SG_ 3 Lamp_ABS 0;
+BA_ "Confidence" SG_ 3 Lamp_ESP 0;
+BA_ "Confidence" SG_ 3 Lamp_ESP_Off 0;
+BA_ "Confidence" SG_ 3 Lamp_ESP_Flash 1;
+BA_ "Confidence" SG_ 3 Lamp_ParkBrake 1;
+BA_ "Confidence" SG_ 3 Lamp_ChargeFail 1;
+BA_ "Confidence" SG_ 3 Lamp_MIL 0;
+BA_ "Confidence" SG_ 3 Lamp_MIL_Blink 1;
+BA_ "Confidence" SG_ 3 Lamp_OilPressure 0;
+BA_ "Confidence" SG_ 3 Lamp_WaitToStart 1;
+BA_ "Confidence" SG_ 3 Lamp_WaterInFuel 1;
+BA_ "Confidence" SG_ 3 AC_CompressorOn 0;
+BA_ "Confidence" SG_ 3 Cruise_Engaged 0;
+BA_ "Confidence" SG_ 3 Cruise_On 0;
+BA_ "Confidence" SG_ 3 GearSelector 0;
+BA_ "Confidence" SG_ 3 BrakeSwitch 0;
+BA_ "Confidence" SG_ 3 PRNDL_Display 0;
+BA_ "Confidence" SG_ 3 FourWD_Low 0;
+BA_ "Confidence" SG_ 3 TransferCaseShifting 0;
+BA_ "GenMsgCycleTime" BO_ 3 450;
+BA_ "Confidence" SG_ 6 TurnLeft 0;
+BA_ "Confidence" SG_ 6 TurnRight 0;
+BA_ "Confidence" SG_ 6 ParkingLamps 0;
+BA_ "Confidence" SG_ 6 LowBeam 0;
+BA_ "Confidence" SG_ 6 HighBeam 0;
+BA_ "Confidence" SG_ 6 FrontFog 0;
+BA_ "Confidence" SG_ 6 RearFog 0;
+BA_ "Confidence" SG_ 6 RAP_Active 0;
+BA_ "Confidence" SG_ 6 PowerMode_Bit5 3;
+BA_ "Confidence" SG_ 6 CCN_SettingsFlags 2;
+BA_ "Confidence" SG_ 6 ApproachLightTime 0;
+BA_ "Confidence" SG_ 6 HeadlampOffDelay 0;
+BA_ "Confidence" SG_ 6 RAP_Delay 0;
+BA_ "GenMsgCycleTime" BO_ 6 100;
+BA_ "GenMsgCycleTime" BO_ 8 1000;
+BA_ "Confidence" SG_ 16 AliveToggle_010 3;
+BA_ "GenMsgCycleTime" BO_ 16 2000;
+BA_ "Confidence" SG_ 17 AliveToggle_011 3;
+BA_ "GenMsgCycleTime" BO_ 17 2000;
+BA_ "Confidence" SG_ 18 RKE_BasicRequest 1;
+BA_ "Confidence" SG_ 18 RKE_ComplexRequest 2;
+BA_ "Confidence" SG_ 18 SKIM_KeyNumber 0;
+BA_ "Confidence" SG_ 18 SKIM_ValidKey 0;
+BA_ "Confidence" SG_ 18 SKREEM_ChimeRequest 1;
+BA_ "Confidence" SG_ 18 SKREEM_SeedRequest 2;
+BA_ "Confidence" SG_ 18 TPM_HornRequest 2;
+BA_ "Confidence" SG_ 18 TPM_ChimeRequest 2;
+BA_ "Confidence" SG_ 18 KeyAuthData 3;
+BA_ "GenMsgCycleTime" BO_ 18 1000;
+BA_ "Confidence" SG_ 19 DriverBeltUnbuckled 0;
+BA_ "Confidence" SG_ 19 DoorsValid 0;
+BA_ "Confidence" SG_ 19 Door_FL_Ajar 0;
+BA_ "Confidence" SG_ 19 Door_FR_Ajar 0;
+BA_ "Confidence" SG_ 19 Door_RR_Ajar 0;
+BA_ "Confidence" SG_ 19 Door_RL_Ajar 0;
+BA_ "Confidence" SG_ 19 Hatch_Ajar 0;
+BA_ "GenMsgCycleTime" BO_ 19 500;
+BA_ "Confidence" SG_ 20 Odometer 0;
+BA_ "Confidence" SG_ 20 AmbientTempFiltered 1;
+BA_ "Confidence" SG_ 20 FuelSenderVoltage 0;
+BA_ "GenMsgCycleTime" BO_ 20 100;
+BA_ "Confidence" SG_ 21 AmbientTempRaw 1;
+BA_ "Confidence" SG_ 21 BatteryVoltage 0;
+BA_ "Confidence" SG_ 21 Unknown_TempLike 3;
+BA_ "GenMsgCycleTime" BO_ 21 100;
+BA_ "Confidence" SG_ 27 VIN_Index 0;
+BA_ "Confidence" SG_ 27 VIN_Char01 0;
+BA_ "Confidence" SG_ 27 VIN_Char02 0;
+BA_ "Confidence" SG_ 27 VIN_Char03 0;
+BA_ "Confidence" SG_ 27 VIN_Char04 0;
+BA_ "Confidence" SG_ 27 VIN_Char05 0;
+BA_ "Confidence" SG_ 27 VIN_Char06 0;
+BA_ "Confidence" SG_ 27 VIN_Char07 0;
+BA_ "Confidence" SG_ 27 VIN_Char08 0;
+BA_ "Confidence" SG_ 27 VIN_Char09 0;
+BA_ "Confidence" SG_ 27 VIN_Char10 0;
+BA_ "Confidence" SG_ 27 VIN_Char11 0;
+BA_ "Confidence" SG_ 27 VIN_Char12 0;
+BA_ "Confidence" SG_ 27 VIN_Char13 0;
+BA_ "Confidence" SG_ 27 VIN_Char14 0;
+BA_ "Confidence" SG_ 27 VIN_Char15 0;
+BA_ "Confidence" SG_ 27 VIN_Char16 0;
+BA_ "Confidence" SG_ 27 VIN_Char17 0;
+BA_ "Confidence" SG_ 27 VIN_BootPad 0;
+BA_ "GenMsgCycleTime" BO_ 27 100;
+BA_ "Confidence" SG_ 44 OilPressure 0;
+BA_ "Confidence" SG_ 44 CoolantTemp 0;
+BA_ "Confidence" SG_ 44 AcceleratorPedal 0;
+BA_ "Confidence" SG_ 44 Unknown_b3 3;
+BA_ "Confidence" SG_ 44 Unknown_b4 3;
+BA_ "GenMsgCycleTime" BO_ 44 500;
+BA_ "GenMsgCycleTime" BO_ 46 1000;
+BA_ "Confidence" SG_ 159 RadioMode 0;
+BA_ "GenMsgCycleTime" BO_ 159 1000;
+BA_ "Confidence" SG_ 208 IgnitionRun 1;
+BA_ "Confidence" SG_ 208 ParkingBrake 0;
+BA_ "GenMsgCycleTime" BO_ 208 1150;
+BA_ "Confidence" SG_ 236 AC_ClutchEngaged 0;
+BA_ "GenMsgCycleTime" BO_ 236 1500;
+BA_ "Confidence" SG_ 272 AliveToggle_110 3;
+BA_ "GenMsgCycleTime" BO_ 272 3000;
+BA_ "Confidence" SG_ 285 Stalk_TurnLeft 0;
+BA_ "Confidence" SG_ 285 Stalk_TurnRight 0;
+BA_ "Confidence" SG_ 285 Stalk_HighBeamLatched 0;
+BA_ "Confidence" SG_ 285 Stalk_HighBeamPush 0;
+BA_ "Confidence" SG_ 285 Stalk_Unknown_b0b7 3;
+BA_ "Confidence" SG_ 285 Stalk_Unknown_b1 3;
+BA_ "GenMsgCycleTime" BO_ 285 100;
+BA_ "Confidence" SG_ 345 MinutesSinceRun 0;
+BA_ "Confidence" SG_ 345 FuelLevelInvalid 0;
+BA_ "Confidence" SG_ 345 FuelLevel 1;
+BA_ "GenMsgCycleTime" BO_ 345 1000;
+BA_ "Confidence" SG_ 396 CanBox_IgnitionOff 0;
+BA_ "Confidence" SG_ 423 FuelFlow 0;
+BA_ "GenMsgCycleTime" BO_ 423 100;
+BA_ "Confidence" SG_ 427 Radio_HB1_b0 3;
+BA_ "GenMsgCycleTime" BO_ 427 3000;
+BA_ "Confidence" SG_ 428 DimmerWheelPos 0;
+BA_ "GenMsgCycleTime" BO_ 428 950;
+BA_ "Confidence" SG_ 429 AliveToggle_1AD 3;
+BA_ "GenMsgCycleTime" BO_ 429 2700;
+BA_ "GenMsgCycleTime" BO_ 430 1400;
+BA_ "Confidence" SG_ 431 AliveToggle_1AF 3;
+BA_ "GenMsgCycleTime" BO_ 431 2500;
+BA_ "GenMsgCycleTime" BO_ 432 5400;
+BA_ "Confidence" SG_ 434 FourWD_LeverPulled 0;
+BA_ "Confidence" SG_ 434 TransferCaseRange 0;
+BA_ "GenMsgCycleTime" BO_ 434 1450;
+BA_ "GenMsgCycleTime" BO_ 435 2000;
+BA_ "Confidence" SG_ 436 CompassDirection8 0;
+BA_ "Confidence" SG_ 436 CompassHeading 0;
+BA_ "Confidence" SG_ 436 CompassZone 2;
+BA_ "GenMsgCycleTime" BO_ 436 500;
+BA_ "GenMsgCycleTime" BO_ 437 6000;
+BA_ "GenMsgCycleTime" BO_ 438 1000;
+BA_ "GenMsgCycleTime" BO_ 443 1000;
+BA_ "Confidence" SG_ 456 HeadlampMode 0;
+BA_ "Confidence" SG_ 456 FrontFogLamps 0;
+BA_ "Confidence" SG_ 456 RearFogLamp 0;
+BA_ "GenMsgCycleTime" BO_ 456 500;
+BA_ "GenMsgCycleTime" BO_ 504 2000;
+BA_ "Confidence" SG_ 528 LightSwitch 0;
+BA_ "Confidence" SG_ 528 PanelIllumination 0;
+BA_ "GenMsgCycleTime" BO_ 528 500;
+BA_ "Confidence" SG_ 704 APP1_Voltage 0;
+BA_ "Confidence" SG_ 704 APP2_Voltage 0;
+BA_ "Confidence" SG_ 704 BoostPressureAbs 0;
+BA_ "Confidence" SG_ 704 APP1_Voltage_Copy 0;
+BA_ "Confidence" SG_ 704 Unknown_b7b1 3;
+BA_ "Confidence" SG_ 704 BrakeSwitch1 0;
+BA_ "Confidence" SG_ 704 BrakeSwitch2 0;
+BA_ "Confidence" SG_ 704 NotInPark 1;
+BA_ "GenMsgCycleTime" BO_ 704 100;
+BA_ "Confidence" SG_ 880 WiperSweep 0;
+BA_ "Confidence" SG_ 916 RadioModeMirror 0;
+BA_ "Confidence" SG_ 916 Btn_SeekRight 4;
+BA_ "Confidence" SG_ 916 Btn_SeekLeft 4;
+BA_ "Confidence" SG_ 916 Btn_FastForward 4;
+BA_ "Confidence" SG_ 916 Btn_Rewind 4;
+BA_ "Confidence" SG_ 916 Btn_RandomPTY 4;
+BA_ "Confidence" SG_ 916 Radio_Unknown_b4 3;
+BA_ "GenMsgCycleTime" BO_ 916 1000;
+BA_ "GenMsgCycleTime" BO_ 928 500;
+BA_ "Confidence" SG_ 976 Volume 0;
+BA_ "Confidence" SG_ 976 Bass 0;
+BA_ "Confidence" SG_ 976 Mid 0;
+BA_ "Confidence" SG_ 976 Treble 0;
+BA_ "Confidence" SG_ 976 Balance 0;
+BA_ "Confidence" SG_ 976 Fade 0;
+BA_ "GenMsgCycleTime" BO_ 976 1000;
+BA_ "Confidence" SG_ 989 VES_Present 0;
+BA_ "GenMsgCycleTime" BO_ 1016 100;
+BA_ "Confidence" SG_ 1024 NM00_Opcode 0;
+BA_ "Confidence" SG_ 1024 NM00_Address 0;
+BA_ "Confidence" SG_ 1024 NM00_SleepInd 0;
+BA_ "GenMsgCycleTime" BO_ 1024 690;
+BA_ "Confidence" SG_ 1026 NM02_Opcode 0;
+BA_ "Confidence" SG_ 1026 NM02_Address 0;
+BA_ "Confidence" SG_ 1026 NM02_SleepInd 0;
+BA_ "GenMsgCycleTime" BO_ 1026 690;
+BA_ "Confidence" SG_ 1044 NM14_Opcode 0;
+BA_ "Confidence" SG_ 1044 NM14_Address 0;
+BA_ "Confidence" SG_ 1044 NM14_SleepInd 0;
+BA_ "GenMsgCycleTime" BO_ 1044 690;
+BA_ "Confidence" SG_ 1045 NM15_Opcode 0;
+BA_ "Confidence" SG_ 1045 NM15_Address 0;
+BA_ "Confidence" SG_ 1045 NM15_SleepInd 0;
+BA_ "GenMsgCycleTime" BO_ 1045 690;
+BA_ "Confidence" SG_ 1046 NM16_Opcode 0;
+BA_ "Confidence" SG_ 1046 NM16_Address 0;
+BA_ "Confidence" SG_ 1046 NM16_SleepInd 0;
+BA_ "GenMsgCycleTime" BO_ 1046 690;
+BA_ "Confidence" SG_ 1052 NM1C_Opcode 0;
+BA_ "Confidence" SG_ 1052 NM1C_Address 0;
+BA_ "Confidence" SG_ 1052 NM1C_SleepInd 0;
+BA_ "GenMsgCycleTime" BO_ 1052 690;
+BA_ "Confidence" SG_ 1054 NM1E_Opcode 0;
+BA_ "Confidence" SG_ 1054 NM1E_Address 0;
+BA_ "Confidence" SG_ 1054 NM1E_SleepInd 0;
+BA_ "GenMsgCycleTime" BO_ 1054 690;
+BA_ "Confidence" SG_ 1280 Rsp_Length 0;
+BA_ "Confidence" SG_ 1280 Rsp_Service 0;
+BA_ "Confidence" SG_ 1280 Rsp_LocalId 0;
+BA_ "Confidence" SG_ 1280 TPMS0_Pressure 0;
+BA_ "Confidence" SG_ 1280 TPMS0_Temp 0;
+BA_ "Confidence" SG_ 1280 TPMS0_Status 1;
+BA_ "Confidence" SG_ 1280 TPMS1_Pressure 0;
+BA_ "Confidence" SG_ 1280 TPMS1_Temp 0;
+BA_ "Confidence" SG_ 1280 TPMS1_Status 1;
+BA_ "Confidence" SG_ 1280 TPMS2_Pressure 0;
+BA_ "Confidence" SG_ 1280 TPMS2_Temp 0;
+BA_ "Confidence" SG_ 1280 TPMS2_Status 1;
+BA_ "Confidence" SG_ 1280 TPMS3_Pressure 0;
+BA_ "Confidence" SG_ 1280 TPMS3_Temp 0;
+BA_ "Confidence" SG_ 1280 TPMS3_Status 1;
+BA_ "Confidence" SG_ 1280 TPMS4_Pressure 0;
+BA_ "Confidence" SG_ 1280 TPMS4_Temp 0;
+BA_ "Confidence" SG_ 1280 TPMS4_Status 1;
+BA_ "Confidence" SG_ 1536 Req_Length 0;
+BA_ "Confidence" SG_ 1536 Req_Service 0;
+BA_ "Confidence" SG_ 1536 Req_LocalId 0;
+VAL_ 0 IgnitionState 169 "Crank" 133 "Run" 99 "ACC" 1 "KeyIn_Off" 0 "NoKey" ;
+VAL_ 3 GearSelector 192 "Unavailable" 132 "D" 130 "N" 129 "R" 128 "P" ;
+VAL_ 3 PRNDL_Display 82 "R" 80 "P" 78 "N" 68 "D" 52 "4" 51 "3" 50 "2" 49 "1" ;
+VAL_ 27 VIN_Index 3 "Boot" 2 "Chars15-17" 1 "Chars8-14" 0 "Chars1-7" ;
+VAL_ 428 DimmerWheelPos 9 "BottomDetent_DomeOff" 1 "TopDetent_DomeOn" ;
+VAL_ 434 TransferCaseRange 7 "Unavailable" 2 "4WD_High" 1 "4WD_Low" 0 "InTransit" ;
+VAL_ 436 CompassDirection8 7 "NW" 6 "W" 5 "SW" 4 "S" 3 "SE" 2 "E" 1 "NE" 0 "N" ;
+VAL_ 456 HeadlampMode 2 "LowBeam" 1 "ParkingLamps" 0 "Off" ;
+VAL_ 528 LightSwitch 3 "LightsOff" 2 "LightsOn" ;
+VAL_ 989 VES_Present 3 "VES_Present" ;
+VAL_ 1024 NM00_Opcode 254 "Alive" 253 "Ring" ;
+VAL_ 1026 NM02_Opcode 254 "Alive" 253 "Ring" ;
+VAL_ 1044 NM14_Opcode 254 "Alive" 253 "Ring" ;
+VAL_ 1045 NM15_Opcode 254 "Alive" 253 "Ring" ;
+VAL_ 1046 NM16_Opcode 254 "Alive" 253 "Ring" ;
+VAL_ 1052 NM1C_Opcode 254 "Alive" 253 "Ring" ;
+VAL_ 1054 NM1E_Opcode 254 "Alive" 253 "Ring" ;
+VAL_ 1280 Rsp_Service 97 "ReadDataByLocalId_Pos" ;
+VAL_ 1280 Rsp_LocalId 36 "TPMS_Spare" 35 "TPMS_Sensor3" 34 "TPMS_Sensor2" 33 "TPMS_Sensor1" 32 "TPMS_Sensor0" ;
+VAL_ 1536 Req_Service 33 "ReadDataByLocalId" ;

@@ -18,10 +18,8 @@
 // width nobody will notice breaking.
 //
 // THE LAWICEL CASES (kStreams) are real lines from a stamped AT@SML2 drive
-// capture, ../../jeep-can-b-logs/drive log - becici to school on top of the
-// steep hill and back - 2026-09-17_074126.log -- outside this repo, which is
-// why every fixture is repeated in full here rather than referenced. Its
-// corrupted lines are in the splice section further down, from the same file.
+// capture; every fixture is repeated in full here. Its corrupted lines are in
+// the splice section further down, from the same capture.
 // The shape is 't' + 3 hex id nibbles + ONE HEX DLC NIBBLE + 2 hex per
 // data byte + an optional 4- or 8-digit stamp, so
 //

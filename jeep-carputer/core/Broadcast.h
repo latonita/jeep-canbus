@@ -61,7 +61,7 @@ struct BroadcastState {
   uint32_t pedalMs;
   uint32_t lightsMs;
 
-  // Instantaneous fuel flow from 0x1A7, raw: L/h = flowRaw / 160. The 0xFFFF
+  // Instantaneous fuel flow from 0x1A7, raw: L/h = flowRaw / 128. The 0xFFFF
   // "no value" answer is rejected at decode, so flowMs only ever moves for a
   // real reading -- and zero IS a real reading. See core/Trip.h.
   uint16_t flowRaw;

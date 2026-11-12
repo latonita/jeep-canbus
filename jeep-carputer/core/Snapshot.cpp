@@ -6,6 +6,7 @@ void snapshotSourceInit(SnapshotSource& src) {
   // Starts per-hour. A cold start from a standstill has no speed to divide by,
   // and L/h is the one of the two readings that is still true.
   src.flowPerDistance = false;
+  historyInit(src.hist);
 }
 
 void snapshotSlotsInit(SnapshotSlots& s) {
@@ -165,6 +166,12 @@ void snapshotBuild(Snapshot& out, SnapshotSource& src, const SnapshotSlots& slot
   out.flow.v = 0.0f;
   out.flow.age = SNAP_ABSENT;
 
+  // The un-switched copy, taken HERE rather than inside the branch below,
+  // because the whole point of it is that it does not depend on which unit the
+  // hero chose. See Snapshot.h.
+  out.flowLph.v = (lph >= 0.0f) ? lph : 0.0f;
+  out.flowLph.age = (lph >= 0.0f) ? SNAP_FRESH : SNAP_ABSENT;
+
   if (lph >= 0.0f) {
     // Which unit FIRST, because the bar is scaled off the answer now -- it
     // used to be computed up here from the rate, against a scale the readout
@@ -220,4 +227,33 @@ void snapshotBuild(Snapshot& out, SnapshotSource& src, const SnapshotSlots& slot
   } else {
     out.flowPerDistance = src.flowPerDistance;
   }
+
+  // --- the fifteen-minute window ------------------------------------------
+  // LAST, deliberately: every readout above is already resolved, so the ring
+  // records what the panel would have SHOWN rather than what the bus carried.
+  // The chart is therefore the history of the instrument, not of the wire --
+  // it inherits broadcast-beats-polled, the TTLs and the hold-and-dim rule
+  // without restating any of them, and two pages cannot disagree about what a
+  // reading was.
+  //
+  // ONLY SNAP_FRESH CONTRIBUTES. A held reading pushed into the bucket would
+  // draw a flat line at the last known value for as long as the gap lasted,
+  // which is the frozen-but-plausible failure this whole instrument is written
+  // to avoid -- and on a chart it is worse than on a readout, because there is
+  // no dimming to carry the doubt. An absent bucket draws nothing, and a hole
+  // in the trace is the honest picture of a link that went away.
+  historyTick(src.hist, nowMs);
+  if (snapLive(out.flowLph)) {
+    historyPush(src.hist, HIST_FLOW, out.flowLph.v);
+  }
+  if (snapLive(out.speedKph)) {
+    historyPush(src.hist, HIST_SPEED, out.speedKph.v);
+  }
+  if (snapLive(out.coolantC)) {
+    historyPush(src.hist, HIST_COOLANT, out.coolantC.v);
+  }
+  if (snapLive(out.volts)) {
+    historyPush(src.hist, HIST_VOLTS, out.volts.v);
+  }
+  out.hist = src.hist;
 }

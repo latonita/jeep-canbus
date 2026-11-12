@@ -320,10 +320,9 @@ That is a cosmetic lie for the benefit of a parser, and it is exactly why `AT@I`
 2.0`, from `FW_NAME`), so our own tooling never has to depend on whatever `ATI` has been
 dressed up as.
 
-Our own `jeepdiag` CLI keys `--adapter auto` on both: it recognises the `ATI` banner
-(known rebrands, currently `JEEPB` and `LATONITA-JEEP`) and falls back to the stable
-`AT@I` name, so renaming `FW_IDENT` never breaks auto-detection. If you rebrand the
-banner, add the new substring to `GATEWAY_ATI_IDENTS` in `jeepdiag/transport.py`.
+Host tools should auto-detect the gateway on both: recognise the `ATI` banner (known
+rebrands: `JEEPB`, `LATONITA-JEEP`) and fall back to the stable `AT@I` name, so renaming
+`FW_IDENT` never breaks auto-detection.
 
 ---
 
@@ -549,7 +548,7 @@ board going to a safe state must go quiet on the link, and with the level back a
 state forced to idle nothing is left that could emit a stamped line.
 
 Worked example -- `0x1A7`, the engine injection-quantity broadcast
-([CAN-IHS-MAP.md](CAN-IHS-MAP.md)), 6 data bytes `02 41 00 00 00 00`, seen 1 725 991 ms
+([CAN-ID map](../../JEEP-WH-CRD-CAN-ID-byte-map.md)), 6 data bytes `02 41 00 00 00 00`, seen 1 725 991 ms
 (28 min 45.991 s) after boot:
 
 ```

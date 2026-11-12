@@ -56,7 +56,7 @@ source** — deliberately not a build step, so the firmware builds without that 
 changes show up in a diff.
 
 ```sh
-python tools/gen_signals.py D:/Repos/car/extracted
+python tools/gen_signals.py <dir-with-extracted-csvs>
 ```
 
 Output is byte-identical across runs. 29 curated signals, 1152 DTC descriptions, 12 modules.
@@ -121,15 +121,13 @@ scripts/    run-host-tests.sh, emulate-car.py (the bench emulator: the 328 AND
 ```sh
 python scripts/emulate-car.py --port COM5                  # polled pages only
 python scripts/emulate-car.py --port COM5 --log playback --loop
-python scripts/emulate-car.py --port COM5 --log drive      # the owner's real drive
+python scripts/emulate-car.py --port COM5 --log path/to/drive.log
 ```
 
 `--log` takes a **name** out of the `LOGS` table in `emulate-car.py` or any path.
-`playback` is the 2015 capture in `scripts/`; `drive` is a real 25-minute timestamped
-drive (224,709 frames, 1484.9 s, 48 CAN ids) kept outside the repo in
-`../../jeep-can-b-logs/` — too big to vendor, and it is the one that exercises the
-rollover-vs-restart guard, since the driver cranked the engine mid-capture and the
-gateway's stamp counter restarted.
+`playback` is the 2015 capture in `scripts/`. A long timestamped drive capture with an
+engine crank mid-capture exercises the rollover-vs-restart guard, since the gateway's
+stamp counter restarts.
 
 ## Licence
 

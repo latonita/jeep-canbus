@@ -566,7 +566,7 @@ TEST_MAIN_BEGIN()
   // -------------------------------------------------------------------------
   // 0x1A7 -- instantaneous fuel flow. Already a RATE.
   //
-  // L/h = raw / 160, per CLAUDE.md, and the two things that must hold are that
+  // L/h = raw / 128 (CAN-ID map, 0x1A7), and the two things that must hold are that
   // 0xFFFF never becomes 409 L/h and that ZERO is accepted as the real reading
   // it is. Zero is overrun fuel cut-off on a trailing engine: it burns nothing,
   // and if it were treated as "no data" the integrator would hold the previous
@@ -575,16 +575,16 @@ TEST_MAIN_BEGIN()
   {
     BroadcastState st;
     broadcastClear(st);
-    CHECK(broadcastApply(st, mk(0x1A7u, 8u, 0x00u, 0xA0u), 1000u));
-    CHECK_EQ(st.flowRaw, 160);                  // exactly 1.0 L/h
+    CHECK(broadcastApply(st, mk(0x1A7u, 8u, 0x00u, 0x80u), 1000u));
+    CHECK_EQ(st.flowRaw, 128);                  // exactly 1.0 L/h
     CHECK_EQ(st.flowMs, 1000);
-    CHECK(broadcastApply(st, mk(0x1A7u, 2u, 0x06u, 0x40u), 1100u));
-    CHECK_EQ(st.flowRaw, 1600);                 // 10.0 L/h
+    CHECK(broadcastApply(st, mk(0x1A7u, 2u, 0x05u, 0x00u), 1100u));
+    CHECK_EQ(st.flowRaw, 1280);                 // 10.0 L/h
     // UI_FLOW_FULL_LPH is 50 L/h and it is a hard CLAMP on the bar, so the raw
-    // count at full scale is worth stating: 50 * 160 = 8000 = 0x1F40.
-    CHECK(broadcastApply(st, mk(0x1A7u, 2u, 0x1Fu, 0x40u), 1200u));
-    CHECK_EQ(st.flowRaw, 8000);
-    CHECK_NEAR((float)st.flowRaw / 160.0f, 50.0f, 1e-6f);
+    // count at full scale is worth stating: 50 * 128 = 6400 = 0x1900.
+    CHECK(broadcastApply(st, mk(0x1A7u, 2u, 0x19u, 0x00u), 1200u));
+    CHECK_EQ(st.flowRaw, 6400);
+    CHECK_NEAR((float)st.flowRaw / 128.0f, 50.0f, 1e-6f);
 
     // Zero: accepted, stamped, integrated as the zero it is.
     CHECK(broadcastApply(st, mk(0x1A7u, 2u, 0x00u, 0x00u), 1300u));

@@ -59,9 +59,32 @@ enum UiScreenId {
   UI_HEALTH,
   UI_TYRES,
   UI_ACCEL,
+  UI_HISTORY,
   UI_SETTINGS,
   UI_SCREEN_COUNT,
 };
+
+// HISTORY sits SEVENTH, between ACCEL and SETTINGS, and that position is the
+// cheapest insertion on the axis: it costs SETTINGS one more flick and costs
+// every other card nothing. SETTINGS being expensive to reach is the point of
+// SETTINGS being last, so the one page that pays is the one that can afford
+// it.
+//
+// It is a deliberate-reading card, not a moving one. The chart answers
+// questions asked ABOUT a drive -- did it run hot on the climb, what is the
+// alternator doing, what did the last quarter of an hour actually cost -- and
+// those are read at a standstill or at a light, like ACCEL beside it, not
+// glanced at mid-corner like DRIVE and TRIP. Putting it with the deliberate
+// cards is what keeps the first three cheap.
+//
+// THE FOUR PARAMETERS ARE FLOW, SPEED, COOLANT AND VOLTS, in that order, and
+// they were chosen for having a TREND that says something a number cannot.
+// Coolant creeping up a hill, volts sagging across a drive, and what the last
+// fifteen minutes drank are each invisible in an instantaneous readout; speed
+// is there because it is what explains the shape of the other three. Ambient
+// and tank level were both considered and dropped -- over fifteen minutes
+// neither moves enough to draw, and a chart that is always a flat line teaches
+// the driver the page is broken.
 
 // SETTINGS is deliberately last, and now costs four flicks rather than three.
 // It is the only page a driver reads while stopped, so it should be the most

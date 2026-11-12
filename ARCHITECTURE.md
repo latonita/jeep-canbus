@@ -564,10 +564,9 @@ DTC coverage on the interior bus, no gateway hop needed — all use `18 00 FF 00
 | EOM overhead | 30 | | | |
 | **676 (59%)** | | | **476 (41%)** | |
 
-> **Measured results are in
-> [jeep-aux-and-can-gateway/docs/CAN-B-CAPABILITIES.md](jeep-aux-and-can-gateway/docs/CAN-B-CAPABILITIES.md)**
-> — what CAN-B actually gives us, what is missing, and what the gaps cost.
-> Raw evidence in [PROBE-LOG.md](jeep-aux-and-can-gateway/docs/PROBE-LOG.md).
+> **CAN-B ids and signals are in
+> [JEEP-WH-CRD-CAN-ID-byte-map.md](JEEP-WH-CRD-CAN-ID-byte-map.md)**.
+> Raw probe evidence in [PROBE-LOG.md](jeep-aux-and-can-gateway/docs/PROBE-LOG.md).
 
 ### ANSWERED 2026-09-11: CAN-C is not reachable from CAN-B, and the fix is a connector
 
@@ -624,7 +623,7 @@ transceiver can put Device B straight onto CAN-C later with no architectural cha
 |---|---|
 | Device A firmware | **Built, 38 host tests pass, flashed over ICSP and running in the radio at 2.1** — `AT@SM` / `AT@SML` duplex streaming, so requests and broadcasts overlap; the host asks for `AT@SML2`, stamped LAWICEL. Flash backups pulled off the chip 2026-09-11 |
 | Device A bench regression | **Still not formally done.** The gate is unchanged: radio still offers VES and BT power still follows AUX, with the UART both connected and unplugged. The board has since run in the car for real sessions, which is evidence but not this test |
-| In-car probe session | **Done, 2026-09-11**, engine off and running. Results in `jeep-aux-and-can-gateway/docs/CAN-B-CAPABILITIES.md`, raw evidence in `PROBE-LOG.md`. Six CAN-B responders found, CAN-C proven unreachable, and the bus measured at **151 frames/s** |
+| In-car probe session | **Done, 2026-09-11**, engine off and running. Signals in `JEEP-WH-CRD-CAN-ID-byte-map.md`, raw evidence in `PROBE-LOG.md`. Six CAN-B responders found, CAN-C proven unreachable, and the bus measured at **151 frames/s** |
 | Device B | **Shipping.** Six pages on glass in two orientations, the broadcast path, TPMS, three trip meters, DTC reading with 1152 compiled-in descriptions, acceleration timing, three NVS stores. 17 host suites pass under ASan/UBSan |
 | Device B on the car, verified | Partial. The data path, the pages and the frame rate are measured on the board; **which 90° landscape is** was picked without glass, and `Q/160` has never been checked against fuel actually paid for |
 | Device C, LoRa, GPS | Not started. No file, no call site, no pins |
